@@ -27,6 +27,8 @@ class ModelConfig:
     hold_buffer: float
     jev_weight: float = 0.0
     cost_multiplier: float = 1.0
+    # Market-regime overlay: "none" | "half" | "cash" -> equity exposure when QQQ closes below its 200-day average
+    regime_filter: str = "none"
 
     @property
     def model_id(self) -> str:
@@ -34,6 +36,8 @@ class ModelConfig:
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
+        if d.get("regime_filter", "none") == "none":
+            d.pop("regime_filter")  # keeps model ids of configurations without an overlay unchanged
         d["family_weights"] = family_preset(self.preset)
         return d
 

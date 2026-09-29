@@ -20,7 +20,7 @@ from src.model.scoring import (
     quant_scores,
 )
 from src.portfolio.book import CostModel, Order, Portfolio, SimulatedBroker
-from src.portfolio.rebalance import execute_targets, plan_targets, spread_cost_fn
+from src.portfolio.rebalance import execute_targets, plan_targets, regime_exposure, spread_cost_fn
 from src.portfolio.signals import BUY, HOLD, SELL, Decision, SignalRules, decide
 
 
@@ -73,7 +73,7 @@ class Backtester:
     def __init__(self, cache: ScoreCache, open_px: pd.DataFrame, close_px: pd.DataFrame,
                  labels: dict[int, pd.DataFrame] | pd.DataFrame | None = None, jev: JevFeatures | None = None,
                  initial_capital: float | None = None, bt_config: dict | None = None, jev_config: dict | None = None,
-                 raw_close_px: pd.DataFrame | None = None):
+                 raw_close_px: pd.DataFrame | None = None, market_close: pd.Series | None = None):
         bt = bt_config or load_config("backtest")   # a stored snapshot can be supplied for exact reproduction
         self.bt = bt
         self.cache = cache
@@ -87,6 +87,7 @@ class Backtester:
         self.initial_capital = float(initial_capital or bt["initial_capital_usd"])
         jcfg = (jev_config or load_config("jev"))["candidate_pool"]
         self.pool_size, self.boundary_extra = int(jcfg["top_n"]), int(jcfg["boundary_extra"])
+        self.market_close = market_close  # QQQ, for the optional market-regime overlay
         self.last_valid = close_px.apply(lambda s: s.last_valid_index())
         # per-symbol haircut for securities that stopped trading (distress vs other delistings)
         self.delist_haircut = delisting_haircuts(close_px, raw_close_px, bt["costs"])
@@ -250,6 +251,7 @@ class Backtester:
             self._snapshot(d, port, hold_rows, last_close)
             return
         tw = plan_targets(keep, cfg.weighting, ranking, pcfg, cfg.portfolio_size)
+        tw = tw * regime_exposure(cfg.regime_filter, self.market_close, d)
         prices_now = {s: (opens.get(s) if opens.get(s) == opens.get(s) else last_close.get(s))
                       for s in set(keep) | set(port.positions)}
         # 3) trims / top-ups / new positions, buys scaled to available cash (costs included)

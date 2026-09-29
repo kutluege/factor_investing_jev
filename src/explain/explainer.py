@@ -30,9 +30,15 @@ FEATURE_LABELS = {
     "breakout_60d": "60-day breakout distance", "volume_ratio_20d": "volume trend (5d/20d)",
     "vol_60d": "60-day volatility", "vol_20d": "20-day volatility", "atr14_pct": "ATR% (14d)",
     "beta_qqq_252d": "beta vs QQQ", "max_dd_252d": "12-month max drawdown",
+    "cop_at": "cash profitability (OCF / assets)", "ocf_ev": "operating cash flow / EV", "asset_growth": "asset growth YoY",
+    "share_issuance": "net share issuance (log, YoY)", "droe": "change in quarterly ROE", "sue": "earnings surprise (SUE)",
+    "fscore": "Piotroski F-score", "accruals": "accruals / assets", "res_mom_12_2": "residual momentum (score)",
+    "mom_12_7": "intermediate momentum (12-7)", "max_ret_21d": "largest daily return (1 month)",
+    "idio_vol_60d": "idiosyncratic volatility (60d)", "sector_mom_6m": "sector 6-month momentum",
 }
 PCT_FEATURES = {f for f in FEATURE_LABELS if f not in ("interest_coverage", "cash_runway_years", "adx14_trend",
-                                                       "volume_ratio_20d", "beta_qqq_252d")}
+                                                       "volume_ratio_20d", "beta_qqq_252d", "sue", "fscore",
+                                                       "res_mom_12_2")}
 
 
 def _fmt_value(feature: str, v: float) -> str:

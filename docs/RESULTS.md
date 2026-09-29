@@ -1,6 +1,6 @@
-# Research results — run `bt_20260929_165924_a62c72`
+# Research results — run `bt_20260929_180053_0d655e`
 
-Generated from the stored run (created 2026-09-29 13:59:31.925117, git `0b19d02d7e`). Data: 2382 symbols with prices 2006-10-02 → 2026-09-28, 2104 companies with SEC facts, 797 delisted securities in the master. Configurations tested: 196. Walk-forward folds: 12.
+Generated from the stored run (created 2026-09-29 15:01:00.660796, git `2ea3b5316a`). Data: 2382 symbols with prices 2006-10-02 → 2026-09-28, 2104 companies with SEC facts, 797 delisted securities in the master. Configurations tested: 196. Walk-forward folds: 12.
 
 ## 1. Honest out-of-sample performance (nested walk-forward)
 
@@ -8,30 +8,50 @@ Each fold's configuration was chosen using only training-window performance, the
 
 | Strategy | CAGR | Volatility | Sharpe | Max DD | Calmar | Win months | Turnover/yr |
 |---|---|---|---|---|---|---|---|
-| Quant + Jev (Jev weight selectable) | -6.8% | 23.8% | -0.17 | -76.1% | -0.09 | 53% | 3.7 |
-| Quant only (Jev weight = 0) | -6.8% | 23.8% | -0.17 | -76.1% | -0.09 | 53% | 3.7 |
+| Fixed prior (pre-specified default, no selection) | 10.5% | 20.9% | 0.58 | -30.4% | 0.35 | 58% | 2.0 |
+| Incumbent/challenger, quant only (production process) | 6.0% | 18.8% | 0.40 | -37.3% | 0.16 | 56% | 1.5 |
+| Free per-fold selection, quant only | -6.8% | 23.8% | -0.17 | -76.1% | -0.09 | 53% | 3.7 |
 | Benchmark EW_universe (same period) | 13.6% | — | — | -47.2% | — | — | — |
 | Benchmark QQQ (same period) | 19.3% | — | — | -35.1% | — | — | — |
 | Benchmark SPY (same period) | 13.9% | — | — | -33.7% | — | — | — |
 
-- Quant + Jev (Jev weight selectable) vs EW_universe: excess CAGR -20.4%, beta 0.62, alpha -14.4%, information ratio -1.04, tracking error 19.7%
-- Quant + Jev (Jev weight selectable) vs QQQ: excess CAGR -26.0%, beta 0.75, alpha -19.1%, information ratio -1.31, tracking error 18.4%
-- Quant + Jev (Jev weight selectable) vs SPY: excess CAGR -20.6%, beta 0.95, alpha -17.9%, information ratio -1.08, tracking error 17.3%
-- Quant only (Jev weight = 0) vs EW_universe: excess CAGR -20.4%, beta 0.62, alpha -14.4%, information ratio -1.04, tracking error 19.7%
-- Quant only (Jev weight = 0) vs QQQ: excess CAGR -26.0%, beta 0.75, alpha -19.1%, information ratio -1.31, tracking error 18.4%
-- Quant only (Jev weight = 0) vs SPY: excess CAGR -20.6%, beta 0.95, alpha -17.9%, information ratio -1.08, tracking error 17.3%
+- Fixed prior (pre-specified default, no selection) vs EW_universe: excess CAGR -3.1%, beta 0.63, alpha 1.8%, information ratio -0.27, tracking error 15.8%
+- Fixed prior (pre-specified default, no selection) vs QQQ: excess CAGR -8.8%, beta 0.74, alpha -2.5%, information ratio -0.53, tracking error 14.7%
+- Fixed prior (pre-specified default, no selection) vs SPY: excess CAGR -3.4%, beta 0.94, alpha -1.5%, information ratio -0.18, tracking error 13.1%
+- Incumbent/challenger, quant only (production process) vs EW_universe: excess CAGR -7.7%, beta 0.55, alpha -1.5%, information ratio -0.54, tracking error 16.6%
+- Incumbent/challenger, quant only (production process) vs QQQ: excess CAGR -13.3%, beta 0.68, alpha -6.1%, information ratio -0.93, tracking error 13.3%
+- Incumbent/challenger, quant only (production process) vs SPY: excess CAGR -7.9%, beta 0.90, alpha -5.5%, information ratio -0.66, tracking error 10.6%
+- Free per-fold selection, quant only vs EW_universe: excess CAGR -20.4%, beta 0.62, alpha -14.4%, information ratio -1.04, tracking error 19.7%
+- Free per-fold selection, quant only vs QQQ: excess CAGR -26.0%, beta 0.75, alpha -19.1%, information ratio -1.31, tracking error 18.4%
+- Free per-fold selection, quant only vs SPY: excess CAGR -20.6%, beta 0.95, alpha -17.9%, information ratio -1.08, tracking error 17.3%
 
-Configurations selected per fold (quant only): 2014-07-31: equal_themes, 2015-08-31: quality_value, 2016-09-30: equal_themes, 2017-10-31: equal_themes, 2018-11-30: equal_themes, 2019-12-31: defensive, 2021-01-29: momentum_only, 2022-02-28: literature_ic_shrunk, 2023-03-31: literature_ic_shrunk, 2024-04-30: defensive, 2025-05-30: literature_ic_shrunk, 2026-06-30: literature_ic_shrunk
+Model held per test fold (Incumbent/challenger, quant only (production process)):
+
+| Test start | Preset | N | Min market cap | Decision |
+|---|---|---|---|---|
+| 2014-07-31 | quality_value | 30 | $300M | promoted (objective +2.37, win 100%) |
+| 2015-08-31 | quality_value | 30 | $300M | incumbent retained |
+| 2016-09-30 | quality_value | 30 | $300M | retained (challenger objective +1.06, win 50%, dd_ok=True) |
+| 2017-10-31 | quality_value | 30 | $300M | retained (challenger objective +1.84, win 58%, dd_ok=True) |
+| 2018-11-30 | quality_value | 30 | $300M | retained (challenger objective +1.56, win 57%, dd_ok=True) |
+| 2019-12-31 | defensive | 25 | $500M | promoted (objective +1.54, win 62%) |
+| 2021-01-29 | defensive | 25 | $500M | retained (challenger objective +0.17, win 42%, dd_ok=True) |
+| 2022-02-28 | defensive | 25 | $500M | retained (challenger objective +0.43, win 24%, dd_ok=True) |
+| 2023-03-31 | defensive | 25 | $500M | retained (challenger objective +0.28, win 22%, dd_ok=True) |
+| 2024-04-30 | defensive | 25 | $500M | retained (challenger objective +0.65, win 36%, dd_ok=True) |
+| 2025-05-30 | defensive | 25 | $500M | retained (challenger objective +0.56, win 22%, dd_ok=True) |
+| 2026-06-30 | defensive | 25 | $500M | retained (challenger objective +0.66, win 24%, dd_ok=True) |
 
 ## 2. Overfitting controls
 
 - Probability of backtest overfitting (CSCV, 168 configurations, 146 months): **56%** (< 50% means in-sample winners tend to stay above median out of sample).
-- Deflated Sharpe ratio, quant_plus_jev: **2%** probability the true Sharpe exceeds the best of 168 random trials (annualized Sharpe -0.19).
-- Deflated Sharpe ratio, quant_only: **2%** probability the true Sharpe exceeds the best of 168 random trials (annualized Sharpe -0.19).
+- Deflated Sharpe ratio, fixed_prior: **83%** probability the true Sharpe exceeds the best of 168 random trials (annualized Sharpe 0.65).
+- Deflated Sharpe ratio, promotion_quant_only: **60%** probability the true Sharpe exceeds the best of 168 random trials (annualized Sharpe 0.45).
+- Deflated Sharpe ratio, free_selection_quant_only: **2%** probability the true Sharpe exceeds the best of 168 random trials (annualized Sharpe -0.19).
 
 ## 3. Configuration selected on all folds (the production challenger)
 
-`{"preset": "defensive", "min_market_cap": 1000000000.0, "min_adv20": 20000000.0, "portfolio_size": 20, "weighting": "inverse_vol", "hold_buffer": 1.5, "jev_weight": 0.0, "cost_multiplier": 1.0}`
+`{"preset": "defensive", "min_market_cap": 500000000.0, "min_adv20": 20000000.0, "portfolio_size": 25, "weighting": "inverse_vol", "hold_buffer": 3.0, "jev_weight": 0.0, "cost_multiplier": 1.0}`
 
 Theme weights: `{"momentum": 15, "quality": 35, "investment": 25, "value": 10, "fundamental_momentum": 0, "low_risk": 15}`
 
@@ -39,12 +59,12 @@ Full-period simulation of this configuration (in-sample for the selection itself
 
 | Strategy | CAGR | Volatility | Sharpe | Max DD | Calmar | Win months | Turnover/yr |
 |---|---|---|---|---|---|---|---|
-| Selected configuration | 12.0% | 18.0% | 0.72 | -28.6% | 0.42 | 64% | 2.1 |
+| Selected configuration | 14.0% | 17.8% | 0.83 | -26.3% | 0.53 | 63% | 1.2 |
 | EW_universe | 13.7% | — | — | -47.2% | — | — | — |
 | QQQ | 19.3% | — | — | -35.1% | — | — | — |
 | SPY | 14.2% | — | — | -33.7% | — | — | — |
 
-Across walk-forward test folds: median CAGR 13.4%, median Sharpe 0.92, worst-fold max drawdown -28.6%.
+Across walk-forward test folds: median CAGR 12.0%, median Sharpe 0.81, worst-fold max drawdown -26.3%.
 
 ## 4. Factor research (cross-sectional rank IC of theme scores)
 
@@ -119,4 +139,4 @@ Historical Jev results are an upper bound (LLM look-ahead); production uses Jev 
 
 Costs assumed: `{"commission_per_trade_usd": 1.0, "slippage_bps": 10, "spread_cost": true, "max_spread_cost_bps": 200, "transaction_cost_bps": 5, "delisting_haircut": 0.0, "distress_haircut": 0.3, "distress_price": 2.0, "distress_drawdown": 0.6}`
 
-Ending equity by series ($10,000 start): bench_EW_universe $70,769, bench_SPY $75,735, bench_QQQ $147,247, bench_XME $18,678, bench_XLE $27,760, walk_forward_quant_plus_jev $4,274, best_model $56,512, bench_XLK $184,389, walk_forward_quant_only $4,274, bench_XBI $66,785
+Ending equity by series ($10,000 start): incumbent $56,512, best_model $73,727, bench_QQQ $147,247, bench_XLE $27,760, bench_XBI $66,785, bench_XLK $184,389, bench_SPY $75,735, bench_XME $18,678, walk_forward_promotion_quant_only $20,242, walk_forward_free_selection_quant_only $4,274, bench_EW_universe $70,769, walk_forward_fixed_prior $33,662

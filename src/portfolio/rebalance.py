@@ -8,6 +8,23 @@ import pandas as pd
 from src.portfolio.book import BrokerAdapter, CostModel, Fill, Order, Portfolio
 from src.portfolio.weights import target_weights
 
+REGIME_EXPOSURE = {"none": 1.0, "half": 0.5, "cash": 0.0}
+
+
+def regime_exposure(regime_filter: str, market_close: pd.Series | None, d: pd.Timestamp, window: int = 200) -> float:
+    """Equity exposure implied by the market-regime overlay on date d (data up to d only).
+
+    Risk-off when the market (QQQ) closes below its trailing 200-session average (Faber 2007; trend-following
+    overlays reduce momentum-crash risk, Daniel & Moskowitz 2016).
+    """
+    if regime_filter in (None, "none") or market_close is None:
+        return 1.0
+    m = market_close.loc[:d].dropna()
+    if len(m) < window:
+        return 1.0
+    risk_off = float(m.iloc[-1]) < float(m.tail(window).mean())
+    return REGIME_EXPOSURE[regime_filter] if risk_off else 1.0
+
 
 def position_cap(portfolio_cfg: dict, portfolio_size: int) -> float:
     """Effective single-name cap: the configured cap, but never below 1.5 / N (keeps small N feasible)."""

@@ -47,7 +47,7 @@ from src.pipeline.common import (
     verify_configuration,
 )
 from src.portfolio.book import CostModel, Order, Portfolio, Position, SimulatedBroker
-from src.portfolio.rebalance import execute_targets, plan_targets, spread_cost_fn
+from src.portfolio.rebalance import execute_targets, plan_targets, regime_exposure, spread_cost_fn
 from src.portfolio.signals import BUY, HOLD, SELL, WAIT, SignalRules, decide
 
 log = logging.getLogger(__name__)
@@ -146,6 +146,9 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
             tasks = build_tasks(cache, md.bench.get("QQQ"), rebalance_date, syms, industries)
             stats = generate(con, tasks, "candidate", client)
             jev_info.update({"feature_set_id": fsid, **stats.summary()})
+            if stats.errors.get("stopped") or (stats.pending and not stats.completed and stats.failed):
+                refused = ", ".join(k for k in stats.errors if k != "stopped") or "error"
+                jev_info["status"] = f"unavailable this month (gateway refused: {refused}); ranked quant-only"
             dec = decisions_frame(con, fsid, [rebalance_date])
             jf = jev_feature_frame(dec)
             jev_feats = JevFeatures(jf, fsid)
@@ -157,7 +160,7 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
     else:
         jev_feats = None
     bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats, s.initial_capital_usd,
-                    raw_close_px=md.mats["raw_close"])
+                    raw_close_px=md.mats["raw_close"], market_close=md.bench.get("QQQ"))
     gate = jev_production_gate(con)
     jev_info["production_gate"] = gate
     effective_cfg = cfg if (jev_feats is not None and gate["allowed"]) else cfg.replace(jev_weight=0.0)
@@ -241,6 +244,9 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
     keep = [d.symbol for d in decisions if d.signal in (HOLD, BUY)]
     if keep:
         tw = plan_targets(keep, cfg.weighting, ranking, bt_cfg["portfolio"], cfg.portfolio_size)
+        exposure = regime_exposure(cfg.regime_filter, md.bench.get("QQQ"), rebalance_date)
+        jev_info["market_regime_exposure"] = exposure
+        tw = tw * exposure
         execute_targets(port, tw, px, broker, costs, extra_bps, float(bt_cfg["portfolio"]["drift_band"]),
                         float(bt_cfg["portfolio"].get("min_trade_usd", 0.0)), rebalance_date, on_fill=fills.append)
 

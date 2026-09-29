@@ -109,3 +109,20 @@ diagnostics:
   max_microcap_weight: 0.5
   min_months: 24
   min_folds: 3
+
+# Maximum-return track (exploratory; declared after the main research results were seen).
+exploration:
+  oos_start: "2014-07-31"   # first walk-forward test month of the main research
+  strategies:
+    - {name: prior_reference,        preset: literature,       min_market_cap: 300000000,   portfolio_size: 20, hold_buffer: 3.0}
+    - {name: momentum_20,            preset: momentum_only,    min_market_cap: 300000000,   portfolio_size: 20, hold_buffer: 3.0}
+    - {name: momentum_20_regime,     preset: momentum_only,    min_market_cap: 300000000,   portfolio_size: 20, hold_buffer: 3.0, regime_filter: cash}
+    - {name: momentum_10_regime,     preset: momentum_only,    min_market_cap: 300000000,   portfolio_size: 10, hold_buffer: 3.0, regime_filter: cash}
+    - {name: mom_quality_15,         preset: momentum_quality, min_market_cap: 300000000,   portfolio_size: 15, hold_buffer: 3.0}
+    - {name: mom_quality_15_regime,  preset: momentum_quality, min_market_cap: 300000000,   portfolio_size: 15, hold_buffer: 3.0, regime_filter: half}
+    - {name: mom_quality_10_regime,  preset: momentum_quality, min_market_cap: 300000000,   portfolio_size: 10, hold_buffer: 3.0, regime_filter: cash}
+    - {name: largecap_mom_quality_15, preset: momentum_quality, min_market_cap: 10000000000, portfolio_size: 15, hold_buffer: 3.0}
+    - {name: largecap_momentum_10,   preset: momentum_only,    min_market_cap: 10000000000, portfolio_size: 10, hold_buffer: 3.0}
+    - {name: largecap_literature_15_regime, preset: literature, min_market_cap: 10000000000, portfolio_size: 15, hold_buffer: 3.0, regime_filter: half}
+    - {name: equal_themes_20,        preset: equal_themes,     min_market_cap: 300000000,   portfolio_size: 20, hold_buffer: 3.0}
+    - {name: broad_anti_junk_60,     preset: literature,       min_market_cap: 300000000,   portfolio_size: 60, hold_buffer: 2.0}

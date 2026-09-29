@@ -19,6 +19,29 @@ receives weight after a validated forward track record.
 
 ---
 
+## Results at a glance (out of sample, 2014-07 → 2026-09, after costs)
+
+| Strategy | CAGR | Sharpe | Max drawdown |
+|---|---|---|---|
+| **Production model** (pre-specified literature themes, $300M+, 20 stocks, equal weight, hold buffer 3) | 10.5% | 0.58 | −30.4% |
+| Incumbent/challenger selection process | 6.0% | 0.40 | −37.3% |
+| Free per-fold parameter selection | −6.8% | −0.17 | −76.1% |
+| Best exploratory variant (large-cap momentum, 10 stocks; chosen with hindsight) | 15.1% | 0.67 | −35.4% |
+| Equal-weight universe (all eligible stocks) | 13.6% | 0.62 | −47.2% |
+| QQQ | 19.3% | 0.95 | −35.1% |
+
+What the evidence says (details in [`docs/RESULTS.md`](docs/RESULTS.md), [`docs/EXPLORATION.md`](docs/EXPLORATION.md),
+[`docs/FACTOR_IC.md`](docs/FACTOR_IC.md)):
+* The factor model mainly **reduces risk** (beta ≈ 0.6–0.75, drawdown −30% vs −47% for its universe; alpha vs the
+  equal-weight universe ≈ +1.8%/yr) — it does **not** beat QQQ, which was driven by mega-cap tech over this period.
+* **Choosing parameters from backtests made results worse** (probability of backtest overfitting 56%), so production
+  uses the pre-specified model and switches only through the conservative incumbent/challenger rules.
+* Concentrated momentum and a market-regime (200-day) overlay added drawdown, not return.
+* No honest configuration came close to 50%/yr; results that do are almost always look-ahead, survivorship,
+  cost-free or in-sample artefacts.
+
+---
+
 ## Architecture
 
 ```

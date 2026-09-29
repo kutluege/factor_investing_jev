@@ -136,6 +136,19 @@ def factor_ic(db: str = typer.Option(None)) -> None:
     console.print(f"wrote {path}")
 
 
+@app.command()
+def explore(db: str = typer.Option(None)) -> None:
+    """Maximum-return exploration (config/backtest.yaml -> exploration) -> docs/EXPLORATION.md."""
+    from src.backtest.exploration import run_exploration, to_markdown
+    from src.config import PROJECT_ROOT
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    out = run_exploration(ctx)
+    path = PROJECT_ROOT / "docs" / "EXPLORATION.md"
+    path.write_text(to_markdown(out), encoding="utf-8")
+    console.print(f"wrote {path}")
+
+
 @app.command("set-incumbent")
 def set_incumbent(model_id: str, reason: str = typer.Option(..., help="why (stored in the audit trail)"),
                   db: str = typer.Option(None)) -> None:
