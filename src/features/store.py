@@ -14,7 +14,7 @@ from src.data.fundamentals_loader import load_snapshots
 from src.data.reference import benchmark_symbols
 from src.db.repo import utcnow
 from src.features.fundamentals import FUNDAMENTAL_FEATURES, asof_join_snapshots, compute_fundamental_features
-from src.features.momentum import forward_returns
+from src.features.momentum import delisting_haircuts, forward_returns
 from src.features.price_features import (
     EXTRA_COLUMNS,
     MOMENTUM_COLUMNS,
@@ -122,6 +122,9 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
     panel = pf.merge(fund, on=["rebalance_date", "symbol"], how="left") if not fund.empty else pf
     panel["sector_group"] = panel["symbol"].map(sector_map)
 
+    # The minimum-price filter must use the price actually traded on the date: vendor closes are split-adjusted
+    # retroactively, so later splits would otherwise make past prices look tiny (look-ahead that drops winners).
+    panel["traded_close"] = panel["raw_close"] * split_factors(splits, panel["symbol"], panel["rebalance_date"])
     # base eligibility (loosest thresholds; configs filter further)
     bt = load_config("backtest")["search"]
     min_mcap, min_adv = min(bt["market_caps"]), min(bt["adv_thresholds"])
@@ -137,7 +140,7 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
             reason = "not yet listed"
         elif r.history_days < ucfg["min_history_days"]:
             reason = "insufficient history"
-        elif pd.isna(r.raw_close) or r.raw_close < ucfg["min_price"]:
+        elif pd.isna(r.traded_close) or r.traded_close < ucfg["min_price"]:
             reason = "price below minimum"
         elif pd.isna(getattr(r, "market_cap", np.nan)):
             reason = "market cap unavailable"
@@ -154,6 +157,22 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
         persist_features(con, panel)
         persist_labels(con, md, dates, syms)
     return panel
+
+
+def split_factors(splits: pd.DataFrame, symbols: pd.Series, dates: pd.Series) -> pd.Series:
+    """Cumulative split ratio after each (symbol, date): converts split-adjusted prices back to traded prices."""
+    out = pd.Series(1.0, index=symbols.index)
+    if splits is None or splits.empty:
+        return out
+    sp = splits.assign(date=pd.to_datetime(splits["date"]))
+    for sym, g in sp.groupby("symbol"):
+        m = symbols == sym
+        if not m.any():
+            continue
+        d = pd.to_datetime(dates[m])
+        ratios = g.sort_values("date")
+        out[m] = [float(ratios.loc[ratios["date"] > x, "ratio"].prod()) for x in d]
+    return out
 
 
 def persist_features(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame) -> None:
@@ -247,7 +266,7 @@ def persist_wide_panel(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame, date
 
 
 def persist_labels(con: duckdb.DuckDBPyConnection, md: MarketData, dates: list[pd.Timestamp], syms: list[str]) -> None:
-    haircut = float(load_config("backtest")["costs"]["delisting_haircut"])
+    haircut = delisting_haircuts(md.mats["close"][syms], md.mats["raw_close"][syms], load_config("backtest")["costs"])
     for h in load_config("factors")["horizons"]:
         fr = forward_returns(md.mats["close"][syms], dates, h, haircut)
         if fr.empty:

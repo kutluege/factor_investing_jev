@@ -11,7 +11,14 @@ costs:
   spread_cost: true             # additionally pay half the estimated bid-ask spread (Abdi-Ranaldo, 60 sessions)
   max_spread_cost_bps: 200      # cap on the spread component per trade
   transaction_cost_bps: 5       # fees / impact allowance on traded notional
-  delisting_haircut: 0.0        # additional loss applied to the last price when a held stock stops trading
+  delisting_haircut: 0.0        # loss applied to the last price when a held stock stops trading (e.g. merger)
+  # Performance (distress) delistings: Shumway (1997) / Shumway & Warther (1999) find average NASDAQ
+  # performance-delisting returns of -30% to -55% after the last exchange price. A stock whose last traded price is
+  # below distress_price or that fell more than distress_drawdown over its last 126 sessions is treated as a distress
+  # delisting and loses distress_haircut on its last price.
+  distress_haircut: 0.30
+  distress_price: 2.0
+  distress_drawdown: 0.60
 
 portfolio:
   max_position_weight: 0.08     # effective cap = max(this, 1.5 / N)

@@ -156,7 +156,8 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
             jev_feats = None
     else:
         jev_feats = None
-    bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats, s.initial_capital_usd)
+    bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats, s.initial_capital_usd,
+                    raw_close_px=md.mats["raw_close"])
     gate = jev_production_gate(con)
     jev_info["production_gate"] = gate
     effective_cfg = cfg if (jev_feats is not None and gate["allowed"]) else cfg.replace(jev_weight=0.0)

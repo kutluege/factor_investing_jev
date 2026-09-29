@@ -160,7 +160,7 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
             jev_feats = JevFeatures(jev_feature_frame(dec), fsid)
             jev_ok = True
     bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats,
-                    initial_capital=ctx.settings.initial_capital_usd)
+                    initial_capital=ctx.settings.initial_capital_usd, raw_close_px=md.mats["raw_close"])
     wf = bt_cfg["walk_forward"]
     start = pd.Timestamp(bt_cfg["start_date"]) if bt_cfg.get("start_date") else None
     research_dates = [d for d in cache.dates if start is None or d >= start]
@@ -295,7 +295,7 @@ def reproduce_run(ctx: Context, run_id: str) -> dict:
     bt = Backtester(cache, md.mats["open"], md.mats["close"],
                     {h: load_labels(ctx.con, h) for h in stored_cfg["factors"]["horizons"]}, jev,
                     initial_capital=float(stored_cfg["backtest"]["initial_capital_usd"]),
-                    bt_config=stored_cfg["backtest"], jev_config=stored_cfg["jev"])
+                    bt_config=stored_cfg["backtest"], jev_config=stored_cfg["jev"], raw_close_px=md.mats["raw_close"])
     res = bt.run(cfg)
     stored = ctx.con.execute("SELECT date, equity FROM backtest_equity WHERE run_id = ? AND series = 'best_model' "
                              "ORDER BY date", [run_id]).df()

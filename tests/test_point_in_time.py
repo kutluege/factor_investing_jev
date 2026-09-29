@@ -145,3 +145,15 @@ def test_walk_forward_folds_embargo_and_purge():
     kept = purge_labels(labels, folds[0])
     assert (kept["label_end_date"] < folds[0].test_start).all()
     assert len(kept) < (labels["rebalance_date"] <= folds[0].train_end).sum()  # overlapping labels were purged
+
+
+def test_min_price_filter_uses_traded_not_split_adjusted_price():
+    """A later 10:1 split must not make a $5 stock look like a $0.50 stock on an earlier date (look-ahead)."""
+    from src.features.store import split_factors
+    splits = pd.DataFrame({"symbol": ["NV"], "date": [pd.Timestamp("2024-06-10")], "ratio": [10.0]})
+    syms = pd.Series(["NV", "NV", "XX"])
+    dates = pd.Series(pd.to_datetime(["2023-12-29", "2024-07-31", "2023-12-29"]))
+    f = split_factors(splits, syms, dates)
+    assert list(f) == [10.0, 1.0, 1.0]
+    adjusted_close = pd.Series([0.5, 12.0, 4.0])
+    assert list(adjusted_close * f) == [5.0, 12.0, 4.0]

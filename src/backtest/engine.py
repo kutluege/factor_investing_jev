@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import load_config
+from src.features.momentum import delisting_haircuts
 from src.model.scoring import (
     FAMILIES,
     ModelConfig,
@@ -71,7 +72,8 @@ def _ranking_frame(cs, quant: pd.Series, jev: pd.DataFrame | None, cfg: ModelCon
 class Backtester:
     def __init__(self, cache: ScoreCache, open_px: pd.DataFrame, close_px: pd.DataFrame,
                  labels: dict[int, pd.DataFrame] | pd.DataFrame | None = None, jev: JevFeatures | None = None,
-                 initial_capital: float | None = None, bt_config: dict | None = None, jev_config: dict | None = None):
+                 initial_capital: float | None = None, bt_config: dict | None = None, jev_config: dict | None = None,
+                 raw_close_px: pd.DataFrame | None = None):
         bt = bt_config or load_config("backtest")   # a stored snapshot can be supplied for exact reproduction
         self.bt = bt
         self.cache = cache
@@ -86,6 +88,8 @@ class Backtester:
         jcfg = (jev_config or load_config("jev"))["candidate_pool"]
         self.pool_size, self.boundary_extra = int(jcfg["top_n"]), int(jcfg["boundary_extra"])
         self.last_valid = close_px.apply(lambda s: s.last_valid_index())
+        # per-symbol haircut for securities that stopped trading (distress vs other delistings)
+        self.delist_haircut = delisting_haircuts(close_px, raw_close_px, bt["costs"])
         self._ic_cache: dict[tuple, dict] = {}
 
     # --- scoring ------------------------------------------------------------------------------------------
@@ -227,7 +231,8 @@ class Backtester:
             if price is None or not price == price:
                 lv = self.last_valid.get(dec.symbol)
                 if lv is not None and lv < day:  # stopped trading: liquidate at last close with haircut
-                    price = last_close.get(dec.symbol, pos.entry_price) * (1 - float(self.bt["costs"]["delisting_haircut"]))
+                    hc = float(self.delist_haircut.get(dec.symbol, self.bt["costs"]["delisting_haircut"]))
+                    price = last_close.get(dec.symbol, pos.entry_price) * (1 - hc)
                     reason += " [delisted: last close]"
                 else:
                     continue  # temporary halt: retry next rebalance

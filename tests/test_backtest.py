@@ -136,3 +136,15 @@ def test_missing_jev_key_reports_unavailable_and_generates_nothing(monkeypatch):
     out = generate_historical_jev(ctx)
     assert out["status"] == "unavailable"
     assert ctx.con.execute("SELECT count(*) FROM jev_decisions").fetchone()[0] == 0
+
+
+def test_distress_delisting_gets_haircut_merger_does_not():
+    from src.features.momentum import delisting_haircuts
+    cal = pd.bdate_range("2023-01-02", periods=300)
+    close = pd.DataFrame({"MERGED": np.linspace(20, 30, 300), "BUST": np.linspace(20, 1.5, 300),
+                          "LIVE": np.linspace(10, 11, 300)}, index=cal)
+    close.iloc[200:, 0] = np.nan  # acquired at ~$26.7
+    close.iloc[250:, 1] = np.nan  # collapsed below $2 before delisting
+    hc = delisting_haircuts(close, None, {"delisting_haircut": 0.0, "distress_haircut": 0.3, "distress_price": 2.0,
+                                          "distress_drawdown": 0.6})
+    assert hc["MERGED"] == 0.0 and hc["BUST"] == 0.3 and "LIVE" not in hc
