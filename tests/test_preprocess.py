@@ -37,25 +37,38 @@ def test_normalization_is_per_cross_section_only():
     cfg = load_config("factors")
     rng = np.random.default_rng(3)
     idx = [f"S{i}" for i in range(40)]
-    today = pd.DataFrame({"ret_6m": rng.normal(0, 0.2, 40), "vol_60d": rng.uniform(0.2, 0.6, 40),
+    today = pd.DataFrame({"mom_12_1": rng.normal(0, 0.2, 40), "idio_vol_60d": rng.uniform(0.2, 0.6, 40),
+                          "cop_at": rng.normal(0.05, 0.1, 40),
                           "sector_group": ["technology"] * 20 + ["energy"] * 20}, index=idx)
     fz1, _, _ = family_scores(today, today["sector_group"], cfg)
     future = today.copy()
-    future["ret_6m"] *= 50  # wildly different future cross-section
+    future["mom_12_1"] *= 50  # wildly different future cross-section
     fz_future, _, _ = family_scores(future, future["sector_group"], cfg)
     fz2, _, _ = family_scores(today, today["sector_group"], cfg)
     pd.testing.assert_frame_equal(fz1, fz2)
+    assert fz1["momentum"].notna().all() and fz1["quality"].notna().all()
 
 
-def test_biotech_value_excludes_earnings_yield():
+def test_biotech_value_excludes_earnings_based_ratios():
     cfg = load_config("factors")
     idx = [f"B{i}" for i in range(12)]
-    df = pd.DataFrame({"earnings_yield": np.linspace(-0.5, 0.1, 12), "cash_to_mcap": np.linspace(0.1, 1, 12),
+    df = pd.DataFrame({"ebit_ev": np.linspace(-0.5, 0.1, 12)[::-1], "cash_to_mcap": np.linspace(0.1, 1, 12),
                        "sector_group": "biotechnology"}, index=idx)
     fz, _, diag = family_scores(df, df["sector_group"], cfg)
     # value for biotech is driven only by cash/market cap: order follows cash_to_mcap exactly
     assert list(fz["value"].rank()) == list(df["cash_to_mcap"].rank())
-    assert diag["coverage"]["earnings_yield"] == 0.0
+    assert diag["coverage"]["ebit_ev"] == 0.0
+
+
+def test_price_signals_ranked_across_universe_accounting_within_sector():
+    cfg = load_config("factors")
+    idx = [f"S{i}" for i in range(20)]
+    # energy names all have higher momentum AND higher cash profitability than tech names
+    df = pd.DataFrame({"mom_12_1": list(range(20)), "cop_at": list(range(20)),
+                       "sector_group": ["technology"] * 10 + ["energy"] * 10}, index=idx)
+    fz, _, _ = family_scores(df, df["sector_group"], cfg)
+    assert fz.loc["S19", "momentum"] > fz.loc["S9", "momentum"]           # universe-wide: energy ranks higher
+    assert abs(fz.loc["S19", "quality"] - fz.loc["S9", "quality"]) < 1e-9  # within-sector: both top of group
 
 
 def test_composite_redistributes_missing_family_weight():

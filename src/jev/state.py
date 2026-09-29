@@ -12,8 +12,8 @@ from typing import Any
 import pandas as pd
 
 FAMILY_LABELS = {
-    "value": "value", "quality": "quality", "growth": "growth", "fundamental_momentum": "fundamental momentum",
-    "price_momentum": "price momentum", "technical_trend": "technical trend", "risk": "low risk",
+    "momentum": "price momentum", "quality": "quality/profitability", "investment": "conservative investment",
+    "value": "value", "fundamental_momentum": "fundamental momentum", "low_risk": "low risk", "growth": "growth",
 }
 
 
@@ -99,12 +99,14 @@ def build_state(row: pd.Series, family_pct: pd.Series, regime: dict, include_ide
         f"liquidity_bucket: {adv_bucket(row.get('adv20'))}",
         "factor_percentiles_within_universe (0-100, higher is better): " + ", ".join(
             f"{FAMILY_LABELS[f]} {_pctile(family_pct.get(f))}" for f in FAMILY_LABELS),
-        f"fundamentals: revenue growth yoy {_pct(row.get('revenue_yoy'))}; revenue growth acceleration "
-        f"{_pct(row.get('revenue_growth_accel'))}; operating margin change yoy {_pct(row.get('operating_margin_chg'))}; "
-        f"fcf margin change yoy {_pct(row.get('fcf_margin_chg'))}; debt-to-assets change yoy "
-        f"{_pct(row.get('leverage_chg'))}; share count change yoy {_pct(row.get('share_dilution_yoy'))}",
+        f"fundamentals: revenue growth yoy {_pct(row.get('revenue_yoy'))}; operating cash flow / assets "
+        f"{_pct(row.get('cop_at'))}; gross profit / assets {_pct(row.get('gross_profitability'))}; "
+        f"asset growth yoy {_pct(row.get('asset_growth'))}; share count change yoy {_pct(row.get('share_dilution_yoy'))}; "
+        f"change in quarterly ROE yoy {_pct(row.get('droe'))}; earnings surprise (SUE) {_fmt(row.get('sue'), 1)}; "
+        f"Piotroski F-score {_fmt(row.get('fscore'), 0)}/9",
         f"momentum: 3m {_pct(row.get('ret_3m'))}; 6m {_pct(row.get('ret_6m'))}; 12-1m {_pct(row.get('mom_12_1'))}; "
-        f"relative to QQQ 6m {_pct(row.get('rs_qqq_6m'))}; relative to sector 6m {_pct(row.get('rs_sector_6m'))}",
+        f"residual momentum score {_fmt(row.get('res_mom_12_2'), 1)}; relative to QQQ 6m {_pct(row.get('rs_qqq_6m'))}; "
+        f"relative to sector 6m {_pct(row.get('rs_sector_6m'))}; max daily return last month {_pct(row.get('max_ret_21d'))}",
         "technicals: price {} 50-day average; price {} 200-day average ({}); 50-day vs 200-day average {}; "
         "RSI14 {}; ADX14 {}; 60-day volatility {}; distance from 52-week high {}; 60-day breakout {}; "
         "5/20-day volume ratio {}".format(

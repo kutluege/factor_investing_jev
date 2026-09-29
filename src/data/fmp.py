@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
@@ -38,16 +39,26 @@ class FmpClient(CachedHttpClient):
         super().__init__("fmp", min_interval=cfg["min_interval_seconds"], max_retries=cfg["max_retries"],
                          request_logger=request_logger, transport=transport, cache=cache)
         self.base = cfg["base_url"].rstrip("/")
-        self.daily_budget = int(cfg["daily_call_budget"])
+        budget = cfg.get("daily_call_budget")
+        self.daily_budget = int(budget) if budget is not None else None
         self._calls_today = calls_today or (lambda: 0)
         self._session_calls = 0
+        self._budget_base: int | None = None
+        self._budget_lock = threading.Lock()
         self.unavailable: dict[str, str] = {}  # endpoint -> reason (plan restriction / budget)
 
     # --- budget & error handling ---------------------------------------------------------------------------
     def before_live_call(self, endpoint: str) -> None:
-        used = self._calls_today()
-        if used >= self.daily_budget:
-            raise BudgetExhausted("fmp", None, f"local daily FMP call budget reached ({used}/{self.daily_budget})")
+        """Atomically reserve one call against the daily budget (safe with concurrent fetch threads)."""
+        if self.daily_budget is None:
+            return
+        with self._budget_lock:
+            if self._budget_base is None:
+                self._budget_base = self._calls_today()
+            used = self._budget_base + self._session_calls
+            if used >= self.daily_budget:
+                raise BudgetExhausted("fmp", None, f"local daily FMP call budget reached ({used}/{self.daily_budget})")
+            self._session_calls += 1
 
     def classify_error(self, response: httpx.Response) -> ApiError:
         kind = _error_kind(response.text)
@@ -88,8 +99,9 @@ class FmpClient(CachedHttpClient):
     def actively_trading_list(self) -> list[dict]:
         return self._get("actively-trading-list", ttl_hours=self.cfg["ttl_hours"]["reference"]) or []
 
-    def profile(self, symbol: str) -> dict | None:
-        data = self._get("profile", {"symbol": symbol}, ttl_hours=self.cfg["ttl_hours"]["reference"])
+    def profile(self, symbol: str, ttl_hours: float | None = None) -> dict | None:
+        data = self._get("profile", {"symbol": symbol},
+                         ttl_hours=ttl_hours if ttl_hours is not None else self.cfg["ttl_hours"]["reference"])
         return data[0] if isinstance(data, list) and data else None
 
     def delisted_companies(self, page: int = 0, limit: int = 100) -> list[dict]:

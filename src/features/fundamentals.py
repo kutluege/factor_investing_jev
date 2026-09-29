@@ -18,7 +18,22 @@ FUNDAMENTAL_FEATURES = [
     "revenue_yoy", "revenue_cagr_2y", "eps_growth", "ebitda_growth", "fcf_growth", "gross_profit_growth",
     "revenue_growth_accel", "operating_margin_chg", "roic_chg", "fcf_margin_chg", "eps_accel", "leverage_chg",
     "share_dilution_yoy",
+    # literature additions (see src/features/research_features.py docstring / docs/RESEARCH.md)
+    "cop_at", "ocf_ev", "asset_growth", "share_issuance", "droe", "sue", "fscore", "accruals",
 ]
+
+
+def _sue(qhist) -> float:
+    """Standardized unexpected earnings: (NI_q - NI_{q-4}) / std of the last 8 seasonal changes."""
+    if not isinstance(qhist, (list, tuple)) or len(qhist) < 12:
+        return np.nan
+    v = [np.nan if x is None else float(x) for x in qhist]
+    changes = [v[k] - v[k + 4] for k in range(8)]
+    ch = np.array([c for c in changes if not np.isnan(c)])
+    if np.isnan(changes[0]) or len(ch) < 6:
+        return np.nan
+    sd = ch.std(ddof=1)
+    return float(np.clip(changes[0] / sd, -10, 10)) if sd > 0 else np.nan
 
 
 def _col(df: pd.DataFrame, name: str) -> pd.Series:
@@ -152,6 +167,37 @@ def compute_fundamental_features(snap: pd.DataFrame, price: pd.Series, splits: p
                 split_1y[sym] = split_factor_after(splits, sym, pd.Timestamp(ref) - pd.Timedelta(days=365)) / \
                     split_factor_after(splits, sym, pd.Timestamp(ref))
     f["share_dilution_yoy"] = (_div(shares, so_1y * split_1y) - 1.0).clip(-0.5, 3)
+
+    # --- literature additions ---------------------------------------------------------------------------
+    # Ball et al. (2016) cash-based operating profitability, cash-flow-statement proxy: OCF / total assets
+    f["cop_at"] = _div(ocf, assets).clip(-2, 2)
+    f["ocf_ev"] = _div(ocf, ev)
+    f["asset_growth"] = (_div(assets, assets_1y) - 1.0).clip(-0.9, 5)            # Cooper-Gulen-Schill [-]
+    ratio = _div(shares, so_1y * split_1y)
+    f["share_issuance"] = np.log(ratio.where(ratio > 0)).clip(-1, 2)                # Pontiff-Woodgate [-]
+    roe_q = _div(_col(df, "net_income__q"), equity)
+    roe_q_1y = _div(_col(df, "net_income__q_1y"), equity_1y)
+    f["droe"] = (roe_q - roe_q_1y).clip(-1, 1)                                      # Hou et al. (2021) [+]
+    f["sue"] = _col(df, "net_income__qhist").map(_sue) if "net_income__qhist" in df else np.nan
+    f["accruals"] = _div(ni - ocf, avg_assets).clip(-2, 2)                          # Sloan (1996) [-]
+    # Piotroski (2000) F-score: nine binary signals from the latest filing vs one year earlier
+    roa_now, roa_1y = _div(ni, assets), _div(ni_1y, assets_1y)
+    cur_ratio = _div(_col(df, "current_assets"), _col(df, "current_liabilities"))
+    cur_ratio_1y = _div(_col(df, "current_assets__1y"), _col(df, "current_liabilities__1y"))
+    gm, gm_1y = _div(gp, rev), _div(gp_1y, rev_1y)
+    turn, turn_1y = _div(rev, assets), _div(rev_1y, assets_1y)
+    lev, lev_1y = _div(_col(df, "long_term_debt"), assets), _div(_col(df, "long_term_debt__1y"), assets_1y)
+    signals = pd.DataFrame({
+        "roa_pos": roa_now > 0, "cfo_pos": ocf > 0, "droa_pos": roa_now > roa_1y, "accrual": ocf > ni,
+        "lev_down": lev.fillna(0) <= lev_1y.fillna(0), "liquidity_up": cur_ratio > cur_ratio_1y,
+        "no_issuance": ratio <= 1.005, "margin_up": gm > gm_1y, "turnover_up": turn > turn_1y})
+    known = pd.DataFrame({"roa_pos": roa_now.notna(), "cfo_pos": ocf.notna(), "droa_pos": roa_1y.notna() & roa_now.notna(),
+                          "accrual": ocf.notna() & ni.notna(), "lev_down": assets.notna(),
+                          "liquidity_up": cur_ratio.notna() & cur_ratio_1y.notna(), "no_issuance": ratio.notna(),
+                          "margin_up": gm.notna() & gm_1y.notna(), "turnover_up": turn.notna() & turn_1y.notna()})
+    n_known = known.sum(axis=1)
+    # scale to 0..9 over the signals that can be computed; require at least 6 of 9
+    f["fscore"] = ((signals & known).sum(axis=1) / n_known.replace(0, np.nan) * 9).where(n_known >= 6)
     return f.replace([np.inf, -np.inf], np.nan), mcap
 
 

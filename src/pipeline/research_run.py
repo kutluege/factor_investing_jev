@@ -14,6 +14,7 @@ from src.backtest.engine import Backtester, JevFeatures
 from src.backtest.folds import walk_forward_folds
 from src.backtest.metrics import information_coefficients, performance, quantile_spreads
 from src.backtest.research import Researcher, summarize_folds
+from src.backtest.validation import deflated_sharpe, ew_universe_benchmark, monthly_returns_matrix, pbo_cscv
 from src.config import all_configs, load_config
 from src.db.repo import utcnow
 from src.db.schema import upsert_df
@@ -96,13 +97,14 @@ def factor_research(cache: ScoreCache, labels: dict[int, pd.DataFrame]) -> dict:
         if cs.frame.empty:
             continue
         f = cs.family_z.copy()
-        f["composite_balanced"] = quant_scores(cs, {k: float(family_preset("balanced").get(k, 0)) for k in FAMILIES})
+        f["composite_literature"] = quant_scores(cs, {k: float(family_preset("literature").get(k, 0))
+                                                      for k in FAMILIES})
         f["rebalance_date"] = dt
         rows.append(f.reset_index().rename(columns={"index": "symbol"}))
     if not rows:
         return {}
     scores = pd.concat(rows, ignore_index=True)
-    cols = FAMILIES + ["composite_balanced"]
+    cols = FAMILIES + ["composite_literature"]
     out = {}
     for h, lab in labels.items():
         ic = information_coefficients(scores, lab[["rebalance_date", "symbol", "fwd_return"]], cols)
@@ -114,9 +116,26 @@ def factor_research(cache: ScoreCache, labels: dict[int, pd.DataFrame]) -> dict:
             "rank_ic_t": (g["rank_ic"].mean() / (g["rank_ic"].std() / np.sqrt(g["rank_ic"].count()))).round(2).to_dict(),
             "dates": int(ic["rebalance_date"].nunique()),
         }
-        spreads = quantile_spreads(scores, lab[["rebalance_date", "symbol", "fwd_return"]], "composite_balanced")
+        spreads = quantile_spreads(scores, lab[["rebalance_date", "symbol", "fwd_return"]], "composite_literature")
         if not spreads.empty:
             out[f"h{h}"]["composite_quintile_mean"] = spreads.drop(columns=["rebalance_date"]).mean().round(4).to_dict()
+    return out
+
+
+def overfitting_report(researcher, rr, folds) -> dict:
+    """PBO (CSCV) across all tested configurations and deflated Sharpe of the honest walk-forward curves."""
+    if not folds:
+        return {"reason": "no folds"}
+    oos_start = folds[0].test_start
+    trials = {m: r.equity for m, r in researcher.results.items() if researcher.stage.get(m) in ("stage1", "stage2")}
+    M = monthly_returns_matrix(trials, oos_start)
+    out: dict = {"pbo": pbo_cscv(M) if not M.empty else {"pbo": None, "reason": "no overlapping months"}}
+    if not M.empty:
+        trial_sr = (M.mean() / M.std(ddof=1)).to_numpy()
+        for key, n in rr.nested.items():
+            if "result" in n:
+                mr = n["result"].equity.resample("ME").last().pct_change().dropna()
+                out[f"deflated_sharpe_{key}"] = deflated_sharpe(mr, trial_sr)
     return out
 
 
@@ -138,12 +157,19 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
         if not dec.empty:
             jev_feats = JevFeatures(jev_feature_frame(dec), fsid)
             jev_ok = True
-    bt = Backtester(cache, md.mats["open"], md.mats["close"], labels.get(126), jev_feats,
+    bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats,
                     initial_capital=ctx.settings.initial_capital_usd)
     wf = bt_cfg["walk_forward"]
-    folds = walk_forward_folds(cache.dates, md.calendar[-1], wf["min_train_months"], wf["test_months"],
+    start = pd.Timestamp(bt_cfg["start_date"]) if bt_cfg.get("start_date") else None
+    research_dates = [d for d in cache.dates if start is None or d >= start]
+    folds = walk_forward_folds(research_dates, md.calendar[-1], wf["min_train_months"], wf["test_months"],
                                wf["embargo_months"], wf["purge_label_days"])
     bench = {k: v for k, v in md.bench.items()}
+    d = default_config()
+    ew = ew_universe_benchmark(cache, md.mats["close"], d.min_market_cap, d.min_adv20,
+                               ctx.settings.initial_capital_usd, start)
+    if not ew.empty:
+        bench["EW_universe"] = ew
     ctx.step("research", f"{len(cache.dates)} rebalance dates, {len(folds)} folds, Jev features: "
                          f"{'yes (' + fsid + ')' if jev_ok else 'no'}")
     researcher = Researcher(bt, folds, bench, jev_available=jev_ok, max_configs=max_configs)
@@ -153,6 +179,7 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
     if inc is not None:
         inc_id = researcher.evaluate(inc["config"], "incumbent")
     summary = researcher.summary()
+    validation = overfitting_report(researcher, rr, folds)
     best_id = rr.best_id
     best_cfg = rr.configs[best_id]
     best_res = bt.run(best_cfg, record_rankings=True)
@@ -173,6 +200,7 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
         _json({"best_model_id": best_id, "best_config": best_cfg.to_dict(), "best_full_period": best_metrics,
                "best_oos_summary": summary.loc[best_id].to_dict(), "nested_walk_forward": nested_out,
                "ablation": rr.ablation, "stability": rr.stability, "factor_research": research_metrics,
+               "validation": validation,
                "sensitivity": rr.sensitivity.to_dict("records") if not rr.sensitivity.empty else [],
                "nested_fold_metrics": {k: v.get("fold_metrics") for k, v in rr.nested.items()},
                "costs": bt_cfg["costs"], "jev": {"used": jev_ok, "feature_set_id": fsid,
@@ -262,7 +290,8 @@ def reproduce_run(ctx: Context, run_id: str) -> dict:
     jev = None
     if row[2]:
         jev = JevFeatures(jev_feature_frame(decisions_frame(ctx.con, row[2])), row[2])
-    bt = Backtester(cache, md.mats["open"], md.mats["close"], load_labels(ctx.con, 126), jev,
+    bt = Backtester(cache, md.mats["open"], md.mats["close"],
+                    {h: load_labels(ctx.con, h) for h in stored_cfg["factors"]["horizons"]}, jev,
                     initial_capital=float(stored_cfg["backtest"]["initial_capital_usd"]),
                     bt_config=stored_cfg["backtest"], jev_config=stored_cfg["jev"])
     res = bt.run(cfg)

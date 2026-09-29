@@ -35,7 +35,7 @@ def world(delist_after: int | None = 30):
 
 
 def cfg(**kw):
-    base = dict(preset="momentum_trend", min_market_cap=1e8, min_adv20=1e6, portfolio_size=3, weighting="equal",
+    base = dict(preset="momentum_only", min_market_cap=1e8, min_adv20=1e6, portfolio_size=3, weighting="equal",
                 hold_buffer=1.5)
     base.update(kw)
     return ModelConfig(**base)

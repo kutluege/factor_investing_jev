@@ -12,7 +12,9 @@ from scipy.stats import spearmanr
 from src.config import load_config, stable_hash
 from src.features.preprocess import composite, family_scores, pct_rank, robust_z
 
-FAMILIES = ["value", "quality", "growth", "fundamental_momentum", "price_momentum", "technical_trend", "risk"]
+# factor themes come from config/factors.yaml (v2: momentum, quality, investment, value, fundamental_momentum,
+# low_risk, growth)
+FAMILIES = list(load_config("factors")["families"])
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,7 @@ def family_preset(name: str) -> dict[str, Any]:
 
 def default_config(**overrides) -> ModelConfig:
     d = load_config("backtest")["search"]["defaults"]
-    base = dict(preset="balanced", min_market_cap=float(d["min_market_cap"]), min_adv20=float(d["min_adv20"]),
+    base = dict(preset="literature", min_market_cap=float(d["min_market_cap"]), min_adv20=float(d["min_adv20"]),
                 portfolio_size=int(d["portfolio_size"]), weighting=d["weighting"], hold_buffer=float(d["hold_buffer"]))
     base.update(overrides)
     return ModelConfig(**base)
@@ -130,6 +132,34 @@ def ic_family_weights(history: list[tuple[pd.Timestamp, pd.DataFrame]], labels: 
     if sum(w.values()) <= 0:
         return {f: 1.0 for f in FAMILIES}
     return w
+
+
+def normalize_weights(w: dict[str, float]) -> dict[str, float]:
+    tot = sum(max(0.0, float(v)) for v in w.values())
+    return {k: max(0.0, float(v)) / tot for k, v in w.items()} if tot > 0 else {k: 1.0 / len(w) for k in w}
+
+
+def factor_momentum_signs(history: list[tuple[pd.Timestamp, pd.DataFrame]], labels: pd.DataFrame,
+                          as_of: pd.Timestamp, lookback_months: int) -> dict[str, float]:
+    """Mean top-quintile excess forward return per theme over past rebalances whose labels matured by ``as_of``."""
+    lab = labels[(labels["label_end_date"] <= as_of) &
+                 (labels["rebalance_date"] >= as_of - pd.DateOffset(months=lookback_months))]
+    perf: dict[str, list[float]] = {f: [] for f in FAMILIES}
+    for d, fz in history:
+        if d >= as_of:
+            continue
+        ld = lab[lab["rebalance_date"] == d].set_index("symbol")["fwd_return"]
+        if len(ld) < 25:
+            continue
+        for f in FAMILIES:
+            if f not in fz:
+                continue
+            j = pd.concat([fz[f], ld], axis=1, join="inner").dropna()
+            if len(j) < 25:
+                continue
+            top = j[j.iloc[:, 0] >= j.iloc[:, 0].quantile(0.8)]
+            perf[f].append(float(top.iloc[:, 1].mean() - j.iloc[:, 1].mean()))
+    return {f: float(np.mean(v)) for f, v in perf.items() if v}
 
 
 def quant_scores(cs: CrossSection, weights: dict[str, float]) -> pd.Series:

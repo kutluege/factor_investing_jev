@@ -114,18 +114,18 @@ def test_ic_weights_ignore_unmatured_labels():
     hist, labels = [], []
     for d in dates:
         fz = pd.DataFrame({f: rng.normal(size=50) for f in ("value", "quality", "growth", "fundamental_momentum",
-                                                             "price_momentum", "technical_trend", "risk")},
+                                                             "momentum", "investment", "low_risk")},
                           index=[f"S{i}" for i in range(50)])
         hist.append((d, fz))
         # labels perfectly predicted by momentum -- but they mature 6 months later
-        labels.append(pd.DataFrame({"rebalance_date": d, "symbol": fz.index, "fwd_return": fz["price_momentum"],
+        labels.append(pd.DataFrame({"rebalance_date": d, "symbol": fz.index, "fwd_return": fz["momentum"],
                                     "label_end_date": d + pd.DateOffset(months=6)}))
     lab = pd.concat(labels)
     as_of = dates[8]
     w = ic_family_weights(hist, lab, as_of, 126, 24, 2)
     usable = lab[lab["label_end_date"] <= as_of]["rebalance_date"].nunique()
     assert usable == 3
-    assert w["price_momentum"] == max(w.values())
+    assert w["momentum"] == max(w.values())
     # tamper: make an unmatured label contradict momentum -> weights must be unchanged
     lab2 = lab.copy()
     mask = lab2["label_end_date"] > as_of

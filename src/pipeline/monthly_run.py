@@ -33,6 +33,7 @@ from src.jev.candidates import (
     reference_universe,
 )
 from src.jev.client import JevClient, JevError
+from src.jev.forward import jev_production_gate
 from src.jev.state import build_state, regime_context
 from src.jev.store import JevTask, decisions_frame, ensure_feature_set, feature_set_id, generate, question_set
 from src.model.promotion import current_incumbent
@@ -46,8 +47,8 @@ from src.pipeline.common import (
     verify_configuration,
 )
 from src.portfolio.book import CostModel, Order, Portfolio, Position, SimulatedBroker
+from src.portfolio.rebalance import execute_targets, plan_targets, spread_cost_fn
 from src.portfolio.signals import BUY, HOLD, SELL, WAIT, SignalRules, decide
-from src.portfolio.weights import target_weights
 
 log = logging.getLogger(__name__)
 PORTFOLIO_ID = "production"
@@ -124,7 +125,8 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
     holdings = list(port.positions)
 
     # 8-10) quant ranking, Jev candidates, final ranking
-    labels = load_labels(con, 126)  # only the dynamic IC preset uses labels; may be empty
+    # only dynamic presets use labels (matured labels only); may be empty
+    labels = {h: load_labels(con, h) for h in load_config("factors")["horizons"]}
     jev_status = verify["jev"]
     jev_info: dict = {"status": jev_status}
     jev_by_symbol: dict[str, dict] = {}
@@ -155,9 +157,13 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
     else:
         jev_feats = None
     bt = Backtester(cache, md.mats["open"], md.mats["close"], labels, jev_feats, s.initial_capital_usd)
-    effective_cfg = cfg if jev_feats is not None else cfg.replace(jev_weight=0.0)
+    gate = jev_production_gate(con)
+    jev_info["production_gate"] = gate
+    effective_cfg = cfg if (jev_feats is not None and gate["allowed"]) else cfg.replace(jev_weight=0.0)
     if cfg.jev_weight > 0 and jev_feats is None:
         jev_info["note"] = "incumbent uses Jev but Jev is unavailable: ranked quant-only (jev_weight=0) this month"
+    elif cfg.jev_weight > 0 and not gate["allowed"]:
+        jev_info["note"] = f"Jev scores recorded in shadow mode (weight 0): {gate['reason']}"
     ranking, cs = bt.rank_at(effective_cfg, rebalance_date, holdings)
     if ranking.empty:
         raise RuntimeError("Empty eligible universe at the rebalance date; check data coverage.")
@@ -214,34 +220,28 @@ def run_monthly(ctx: Context, portfolio_id: str = PORTFOLIO_ID, update_data: boo
                             json.dumps(e, default=str), dcs.rank, prev_rank.get(sym),
                             float(rr["final_score"]) if rr is not None else None, model_version, utcnow()))
 
-    # 14) paper-portfolio accounting at the rebalance close (reference price) with explicit costs
+    # 14) paper-portfolio accounting at the rebalance close (reference price), using exactly the same sizing,
+    #     caps and cost model as the backtest (src.portfolio.rebalance)
     bt_cfg = load_config("backtest")
-    broker = SimulatedBroker(CostModel.from_config(bt_cfg["costs"]))
+    costs = CostModel.from_config(bt_cfg["costs"])
+    broker = SimulatedBroker(costs)
+    full = cache.by_date.get(rebalance_date)
+    spread = full["spread_est"] if full is not None and "spread_est" in full else pd.Series(dtype=float)
+    extra_bps = spread_cost_fn(bt_cfg["costs"], spread)
     fills = []
     px = {sym: float(closes.get(sym)) for sym in closes.index if closes.get(sym) == closes.get(sym)}
     for dcs in decisions:
         if dcs.signal == SELL and dcs.symbol in port.positions and dcs.symbol in px:
             f = broker.execute(Order(dcs.symbol, "SELL", port.positions[dcs.symbol].shares, dcs.reasons[0]),
-                               px[dcs.symbol], rebalance_date)
+                               px[dcs.symbol], rebalance_date, extra_bps(dcs.symbol))
             if f:
                 port.apply(f)
                 fills.append(f)
     keep = [d.symbol for d in decisions if d.signal in (HOLD, BUY)]
-    tw = target_weights(keep, cfg.weighting, ranking["final_score"], ranking["vol_60d"],
-                        float(bt_cfg["portfolio"]["max_position_weight"]))
-    equity = port.cash + sum(p.shares * px.get(sym, p.entry_price) for sym, p in port.positions.items())
-    costs = broker.costs
-    buys = [(sym, equity * float(tw[sym])) for sym in keep if sym not in port.positions and sym in px]
-    need = sum(v for _, v in buys)
-    budget = port.cash - costs.commission_per_trade_usd * len(buys)
-    scale = min(1.0, budget / (need * (1 + costs.slippage_bps / 1e4) * (1 + costs.transaction_cost_bps / 1e4))) if need else 0
-    for sym, val in buys:
-        if val * scale < 1:
-            continue
-        f = broker.execute(Order(sym, "BUY", val * scale / px[sym], "entry"), px[sym], rebalance_date)
-        if f and f.gross + f.total_cost <= port.cash + 1e-9:
-            port.apply(f)
-            fills.append(f)
+    if keep:
+        tw = plan_targets(keep, cfg.weighting, ranking, bt_cfg["portfolio"], cfg.portfolio_size)
+        execute_targets(port, tw, px, broker, costs, extra_bps, float(bt_cfg["portfolio"]["drift_band"]),
+                        float(bt_cfg["portfolio"].get("min_trade_usd", 0.0)), rebalance_date, on_fill=fills.append)
 
     counts = {k: sum(1 for d in decisions if d.signal == k) for k in (BUY, HOLD, WAIT, SELL)}
     summary = {"run_key": run_key, "rebalance_date": str(rebalance_date.date()), "model_version": model_version,

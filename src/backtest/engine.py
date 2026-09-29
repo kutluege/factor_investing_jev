@@ -12,13 +12,15 @@ from src.model.scoring import (
     ModelConfig,
     ScoreCache,
     combine_final,
+    factor_momentum_signs,
     family_preset,
     ic_family_weights,
+    normalize_weights,
     quant_scores,
 )
 from src.portfolio.book import CostModel, Order, Portfolio, SimulatedBroker
+from src.portfolio.rebalance import execute_targets, plan_targets, spread_cost_fn
 from src.portfolio.signals import BUY, HOLD, SELL, Decision, SignalRules, decide
-from src.portfolio.weights import target_weights
 
 
 @dataclass
@@ -68,7 +70,7 @@ def _ranking_frame(cs, quant: pd.Series, jev: pd.DataFrame | None, cfg: ModelCon
 
 class Backtester:
     def __init__(self, cache: ScoreCache, open_px: pd.DataFrame, close_px: pd.DataFrame,
-                 labels_126: pd.DataFrame | None = None, jev: JevFeatures | None = None,
+                 labels: dict[int, pd.DataFrame] | pd.DataFrame | None = None, jev: JevFeatures | None = None,
                  initial_capital: float | None = None, bt_config: dict | None = None, jev_config: dict | None = None):
         bt = bt_config or load_config("backtest")   # a stored snapshot can be supplied for exact reproduction
         self.bt = bt
@@ -76,7 +78,9 @@ class Backtester:
         self.open = open_px
         self.close = close_px
         self.calendar = close_px.index
-        self.labels = labels_126
+        # forward labels by horizon (used only by dynamic presets, always restricted to matured labels)
+        self.labels = labels if isinstance(labels, dict) or labels is None else {126: labels}
+        self.labels = self.labels or {}
         self.jev = jev
         self.initial_capital = float(initial_capital or bt["initial_capital_usd"])
         jcfg = (jev_config or load_config("jev"))["candidate_pool"]
@@ -85,34 +89,56 @@ class Backtester:
         self._ic_cache: dict[tuple, dict] = {}
 
     # --- scoring ------------------------------------------------------------------------------------------
+    def _preset(self, name: str) -> dict:
+        return self.bt["family_presets"].get(name) or family_preset(name)
+
     def family_weights(self, cfg: ModelConfig, d: pd.Timestamp) -> dict[str, float]:
-        preset = self.bt["family_presets"].get(cfg.preset) or family_preset(cfg.preset)
-        if preset.get("dynamic") != "ic":
+        preset = self._preset(cfg.preset)
+        dyn = preset.get("dynamic")
+        if not dyn:
             return {f: float(preset.get(f, 0)) for f in FAMILIES}
+        base = self._preset(preset["base"]) if preset.get("base") else {f: 1.0 for f in FAMILIES}
+        base_w = normalize_weights({f: float(base.get(f, 0)) for f in FAMILIES})
         key = (cfg.preset, cfg.universe_key, d)
-        if key not in self._ic_cache:
-            if self.labels is None or self.labels.empty:
-                self._ic_cache[key] = {f: 1.0 for f in FAMILIES}
-            else:
-                hist = [(x, self.cache.cross_section(x, *cfg.universe_key).family_z)
-                        for x in self.cache.dates if x < d]
-                self._ic_cache[key] = ic_family_weights(hist, self.labels, d, int(preset.get("horizon", 126)),
-                                                        int(preset.get("lookback_months", 24)),
-                                                        int(preset.get("min_obs", 6)))
-        return self._ic_cache[key]
+        if key in self._ic_cache:
+            return self._ic_cache[key]
+        horizon = int(preset.get("horizon", 126))
+        lab = self.labels.get(horizon)
+        lookback = int(preset.get("lookback_months", 24))
+        hist = [(x, self.cache.cross_section(x, *cfg.universe_key).family_z) for x in self.cache.dates
+                if d - pd.DateOffset(months=lookback + 7) <= x < d]
+        if lab is None or lab.empty:
+            w = base_w  # no matured labels available: fall back to the base weights
+        elif dyn == "ic":
+            ic = ic_family_weights(hist, lab, d, horizon, lookback, int(preset.get("min_obs", 6)))
+            ic_w = normalize_weights({f: float(ic.get(f, 0)) for f in FAMILIES})
+            shrink = float(preset.get("shrink", 0.0))
+            w = {f: shrink * base_w[f] + (1 - shrink) * ic_w[f] for f in FAMILIES}
+        elif dyn == "factor_momentum":
+            perf = factor_momentum_signs(hist, lab, d, lookback)
+            tilt = float(preset.get("tilt", 0.3))
+            w = {f: base_w[f] * (1 + tilt * float(np.sign(perf.get(f, 0.0)))) for f in FAMILIES}
+        else:
+            raise ValueError(f"unknown dynamic preset type {dyn!r}")
+        self._ic_cache[key] = w
+        return w
 
     def rank_at(self, cfg: ModelConfig, d: pd.Timestamp, holdings: list[str]) -> tuple[pd.DataFrame, object]:
         cs = self.cache.cross_section(d, *cfg.universe_key)
         if cs.frame.empty:
             return pd.DataFrame(), cs
         quant = quant_scores(cs, self.family_weights(cfg, d))
-        jev = self.jev.for_date(d) if (self.jev is not None and cfg.jev_weight > 0) else None
+        # Jev scores are attached whenever available (shadow mode at weight 0); they only move the ranking
+        # when jev_weight > 0
+        jev = self.jev.for_date(d) if self.jev is not None else None
         return _ranking_frame(cs, quant, jev, cfg, holdings, self.pool_size, self.boundary_extra), cs
 
     # --- simulation ---------------------------------------------------------------------------------------
     def run(self, cfg: ModelConfig, start: pd.Timestamp | None = None, end: pd.Timestamp | None = None,
             schedule: list[tuple[pd.Timestamp, ModelConfig]] | None = None, record_rankings: bool = False) -> BacktestResult:
         """Simulate ``cfg`` (or a date-> config ``schedule`` for walk-forward switching)."""
+        if start is None and self.bt.get("start_date"):
+            start = pd.Timestamp(self.bt["start_date"])
         dates = [d for d in self.cache.dates if (start is None or d >= start) and (end is None or d <= end)]
         sched = sorted(schedule or [], key=lambda x: x[0])
         pcfg = self.bt["portfolio"]
@@ -176,10 +202,12 @@ class Backtester:
                    closed_days, jev_cov, universe_sizes, last_close):
         costs = CostModel.from_config(self.bt["costs"], cfg.cost_multiplier)
         broker = SimulatedBroker(costs)
+        ccfg = self.bt["costs"]
         rules = SignalRules.from_config(pcfg, cfg.portfolio_size, cfg.hold_buffer)
         holdings = list(port.positions)
         ranking, cs = self.rank_at(cfg, d, holdings)
         universe_sizes.append(len(cs.frame))
+        extra_bps = spread_cost_fn(ccfg, self._spread_lookup(d), cfg.cost_multiplier)
         if cfg.jev_weight > 0 and not ranking.empty:
             pool = ranking[ranking["in_pool"]]
             jev_cov.append(float(pool["jev_raw"].notna().mean()) if len(pool) else 0.0)
@@ -203,7 +231,8 @@ class Backtester:
                     reason += " [delisted: last close]"
                 else:
                     continue  # temporary halt: retry next rebalance
-            fill = broker.execute(Order(dec.symbol, "SELL", pos.shares, reason), float(price), day)
+            fill = broker.execute(Order(dec.symbol, "SELL", pos.shares, reason), float(price), day,
+                                  extra_bps(dec.symbol))
             if fill:
                 port.apply(fill)
                 closed_days.append(int((day - entry_meta.get(dec.symbol, {"entry_date": day})["entry_date"]).days))
@@ -215,53 +244,26 @@ class Backtester:
         if ranking.empty or not keep:
             self._snapshot(d, port, hold_rows, last_close)
             return
-        tw = target_weights(keep, cfg.weighting, ranking["final_score"], ranking["vol_60d"],
-                            float(pcfg["max_position_weight"]))
-        prices_now = {s: (opens.get(s) if opens.get(s) == opens.get(s) else last_close.get(s)) for s in keep}
-        equity = port.cash + sum(p.shares * float(prices_now.get(s) or last_close.get(s, p.entry_price))
-                                 for s, p in port.positions.items())
-        band = float(pcfg["drift_band"])
-        orders_buy = []
-        for sym in keep:
-            px = prices_now.get(sym)
-            if px is None or not px == px or px <= 0:
-                continue
-            target_val = equity * float(tw[sym])
-            cur_val = port.positions[sym].shares * px if sym in port.positions else 0.0
-            if sym in port.positions and abs(cur_val - target_val) <= band * target_val:
-                continue
-            delta = target_val - cur_val
-            if delta < 0:
-                fill = broker.execute(Order(sym, "SELL", min(-delta / px, port.positions[sym].shares),
-                                            "rebalance:trim to target"), px, day)
-                if fill:
-                    port.apply(fill)
-                    trade_rows.append(self._trade_row(d, fill))
-            elif delta > 0:
-                orders_buy.append((sym, delta, px))
-        # 3) buys, scaled to available cash (costs included)
-        need = sum(delta for _, delta, _ in orders_buy)
-        slip = costs.slippage_bps / 1e4
-        tc = costs.transaction_cost_bps / 1e4
-        budget = port.cash - costs.commission_per_trade_usd * len(orders_buy)
-        scale = min(1.0, budget / (need * (1 + slip) * (1 + tc))) if need > 0 else 0.0
-        for sym, delta, px in orders_buy:
-            notional = delta * scale
-            if notional < 1.0:  # skip dust trades
-                continue
-            shares = notional / px
-            new = sym not in port.positions
-            fill = broker.execute(Order(sym, "BUY", shares, "entry" if new else "rebalance:top up"), px, day)
-            if fill and fill.gross + fill.total_cost <= port.cash + 1e-9:
-                port.apply(fill)
-                if new:
-                    entry_meta[sym] = {"entry_date": day}
-                trade_rows.append(self._trade_row(d, fill))
+        tw = plan_targets(keep, cfg.weighting, ranking, pcfg, cfg.portfolio_size)
+        prices_now = {s: (opens.get(s) if opens.get(s) == opens.get(s) else last_close.get(s))
+                      for s in set(keep) | set(port.positions)}
+        # 3) trims / top-ups / new positions, buys scaled to available cash (costs included)
+        execute_targets(port, tw, prices_now, broker, costs, extra_bps, float(pcfg["drift_band"]),
+                        float(pcfg.get("min_trade_usd", 0.0)), day,
+                        on_fill=lambda f: trade_rows.append(self._trade_row(d, f)),
+                        on_new_position=lambda s: entry_meta.__setitem__(s, {"entry_date": day}))
         if rank_rows is not None:
             r = ranking.head(max(60, cfg.portfolio_size * 3)).reset_index().rename(columns={"index": "symbol"})
             r["rebalance_date"] = d
             rank_rows.extend(r.to_dict("records"))
         self._snapshot(d, port, hold_rows, last_close, ranking)
+
+    def _spread_lookup(self, d: pd.Timestamp) -> pd.Series:
+        """Spread estimates for every name on date d (held names may have left the eligible universe)."""
+        full = self.cache.by_date.get(d)
+        if full is not None and "spread_est" in full:
+            return full["spread_est"]
+        return pd.Series(dtype=float)
 
     @staticmethod
     def _trade_row(d, fill) -> dict:

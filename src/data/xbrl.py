@@ -112,6 +112,7 @@ CONCEPT_TO_METRIC = {(tax, c, u): (m, prio) for m, (_, lst) in METRICS.items() f
 METRIC_KIND = {m: k for m, (k, _) in METRICS.items()}
 
 QUARTER_DAYS = (70, 110)
+QUARTER_HISTORY_METRICS = ("net_income", "revenue")
 DURATION_BUCKETS = {1: (70, 110), 2: (160, 200), 3: (250, 290), 4: (340, 380)}
 
 
@@ -281,6 +282,10 @@ def snapshot(facts: pd.DataFrame, as_of: pd.Timestamp) -> dict[str, float | pd.T
                 v = ttm_at(quarters, annual, end - pd.Timedelta(days=365 * years))
                 if v is not None:
                     out[f"{metric}__{label}"] = v
+            if metric in QUARTER_HISTORY_METRICS:
+                # last 12 discrete quarters (newest first; None where a quarter cannot be derived) for SUE
+                hist = [_find_quarter(quarters, end - pd.Timedelta(days=91 * k)) for k in range(12)]
+                out[f"{metric}__qhist"] = [None if q is None else float(q.value) for q in hist]
             # most recent discrete quarter and the same quarter a year earlier (for acceleration/margins)
             q_last = quarters.get(end)
             if q_last is not None:

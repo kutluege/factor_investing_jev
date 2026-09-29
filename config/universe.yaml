@@ -49,7 +49,7 @@ groups:
 # Minimum price history before a security can enter a rebalance universe (trading days).
 min_history_days: 252
 # Minimum share price at rebalance (avoids sub-dollar pathologies; applied on raw close).
-min_price: 1.0
+min_price: 3.0              # literature filter: avoid sub-$3 lottery / distress names
 
 benchmarks:
   broad: ["QQQ", "SPY"]

@@ -28,7 +28,10 @@ def _small(original):
                      cost_multipliers=[1.0, 2.0])
             s["defaults"].update(portfolio_size=5, min_market_cap=100000000, min_adv20=1000000)
             cfg["family_presets"] = {k: v for k, v in cfg["family_presets"].items()
-                                     if k in ("balanced", "momentum_trend", "ic_weighted_126")}
+                                     if k in ("literature", "momentum_only", "literature_ic_shrunk",
+                                              "literature_factor_momentum")}
+            # the synthetic market has ~4 years of rebalances: use shorter folds than production
+            cfg["walk_forward"].update(min_train_months=18, test_months=6)
         if name == "jev":
             cfg["candidate_pool"].update(top_n=6, boundary_extra=2)
         return cfg

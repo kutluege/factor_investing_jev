@@ -4,16 +4,19 @@ raw_cache_dir: data/raw_cache
 
 fmp:
   base_url: https://financialmodelingprep.com/stable
-  daily_call_budget: 240         # free plan allows 250/day; keep headroom
-  min_interval_seconds: 0.25     # spacing between live calls
+  plan: starter                  # verified 2026-09-29: US coverage, 300 calls/min, 20 GB / 30 days
+  daily_call_budget: null        # null = no daily cap (paid plans); free plan: 240
+  min_interval_seconds: 0.22     # ~270 calls/min, below Starter's 300/min
   max_retries: 4
-  history_years: 5               # daily price history requested on first load
-  max_delisted_profiles_per_run: 150  # profile calls used to classify delisted companies
+  history_start: "2006-10-01"    # Starter serves ~20 years of EOD history (5,000 rows per request)
+  delisted_max_pages: 1          # Starter: only page 0 of delisted-companies (page >= 1 returns 402)
+  max_delisted_profiles_per_run: 20000  # profile calls used to classify inactive / delisted symbols
   # Cache time-to-live per endpoint family (hours). Immutable history is cached forever once past.
   ttl_hours:
     reference: 168               # profiles, lists, screener
     prices_recent: 20            # price payloads that include the last few sessions
     delisted: 168
+    inactive_profile: 720        # profiles of no-longer-trading symbols rarely change
 
 sec:
   base_url: https://data.sec.gov
@@ -26,3 +29,5 @@ sec:
     tickers: 20
   # Filings are assumed usable the session AFTER the filing date (filings often land after the close).
   availability_lag_days: 1
+  snapshot_workers: 24           # processes for point-in-time snapshot construction
+  snapshot_min_date: "2009-06-01"  # XBRL coverage begins 2009-2011; earlier snapshots are not needed

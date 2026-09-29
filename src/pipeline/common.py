@@ -146,10 +146,11 @@ def update_fundamentals(ctx: Context, sec, symbols: list[str] | None = None,
         else:
             q += " AND symbol IN (SELECT DISTINCT symbol FROM daily_prices)"
         ciks = [r[0] for r in ctx.con.execute(q, params).fetchall()]
-        if snapshot_min_date is None:
-            first = ctx.con.execute("SELECT min(date) FROM daily_prices").fetchone()[0]
-            snapshot_min_date = pd.Timestamp(first) + pd.DateOffset(years=1) if first else None
-        out = load_fundamentals(ctx.con, sec, ciks, snapshot_min_date=snapshot_min_date)
+        scfg = load_config("data")["sec"]
+        if snapshot_min_date is None and scfg.get("snapshot_min_date"):
+            snapshot_min_date = pd.Timestamp(scfg["snapshot_min_date"])
+        out = load_fundamentals(ctx.con, sec, ciks, snapshot_min_date=snapshot_min_date,
+                                workers=int(scfg.get("snapshot_workers", 4)))
         out["split_inference"] = infer_missing_splits(ctx.con)
     ctx.report["fundamentals"] = out
     ctx.step("fundamentals", f"SEC facts loaded for {out.get('loaded', 0)} companies")

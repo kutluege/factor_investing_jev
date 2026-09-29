@@ -7,8 +7,8 @@ base_url: https://ai-gateway.vercel.sh/v1
 endpoint: /evaluate
 timeout_seconds: 60
 max_retries: 5
-state_schema_version: "candidate-v1"
-holding_state_schema_version: "holding-v1"
+state_schema_version: "candidate-v2"   # v2: literature factor themes
+holding_state_schema_version: "holding-v2"
 question_schema_version: "q-v1"
 # Bump to start a deliberately separate Jev feature set (e.g. a full refresh); old decisions are kept.
 feature_set_tag: "v1"
@@ -84,3 +84,12 @@ holding_questions:
       - "Moderate: meaningful weakening in rank or one factor family"
       - "High: several factor families and the trend have weakened"
       - "Severe: broad deterioration in rank, fundamentals and trend"
+
+# Production policy. Historical Jev backtests are look-ahead contaminated (the model may know what happened after a
+# historical date), so Jev only receives weight in production after a matured FORWARD record: scores stored by
+# monthly runs before returns were realized must show a significant IC beyond the quant score.
+production_policy:
+  require_forward_validation: true
+  horizon_days: 63
+  min_forward_months: 12
+  min_residual_ic_t: 2.0

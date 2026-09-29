@@ -94,7 +94,8 @@ if run:
         finally:
             con.close()
 
-tabs = st.tabs(["Current Portfolio", "New Opportunities", "Sells", "Security Detail", "Backtest", "Data & Jev"])
+tabs = st.tabs(["Monthly Factor Ranking", "Current Portfolio", "New Opportunities", "Sells", "Security Detail",
+                "Backtest", "Data & Jev"])
 latest = q("SELECT run_key, rebalance_date FROM production_runs WHERE status='completed' ORDER BY rebalance_date DESC LIMIT 1")
 run_key = None if latest.empty else latest.iloc[0]["run_key"]
 
@@ -119,8 +120,42 @@ def signals_frame(signals: list[str]) -> pd.DataFrame:
     return df.drop(columns=["explanation"])
 
 
-# -------------------------------------------------------------------------------------- current portfolio ---
+# ---------------------------------------------------------------------------------- monthly factor ranking ---
 with tabs[0]:
+    if run_key is None:
+        st.info("No completed monthly run yet. Press RUN MONTHLY ANALYSIS.")
+    else:
+        st.subheader(f"Factor ranking for {latest.iloc[0]['rebalance_date']}")
+        st.caption("Ranked by the incumbent factor model (literature themes; no technical analysis). Use this list as "
+                   "the monthly shortlist for your own technical analysis. Percentiles: 100 = best in the universe.")
+        rk = q("""SELECT r.rank, r.symbol, s.name AS company, s.sector_group, s.industry, r.final_score, r.quant_score,
+                         r.jev_score, r.previous_rank, r.family_percentiles, sh.signal
+                  FROM monthly_rankings r LEFT JOIN securities s USING (symbol)
+                  LEFT JOIN signal_history sh ON sh.run_key = r.run_key AND sh.symbol = r.symbol
+                  WHERE r.run_key = ? ORDER BY r.rank""", [run_key])
+        if not rk.empty:
+            fam = pd.json_normalize(rk["family_percentiles"].map(json.loads)).mul(100).round(0)
+            fam.columns = [f"{c} pct" for c in fam.columns]
+            view = pd.concat([rk.drop(columns=["family_percentiles"]), fam], axis=1)
+            view["rank change"] = view["previous_rank"] - view["rank"]
+            top_n = st.slider("Show top", 10, min(150, len(view)), min(50, len(view)), step=10)
+            groups = st.multiselect("Sector groups", sorted(view["sector_group"].dropna().unique()),
+                                    default=sorted(view["sector_group"].dropna().unique()))
+            v = view[view["sector_group"].isin(groups)].head(top_n)
+            st.dataframe(v, hide_index=True, width="stretch",
+                         column_config={"final_score": st.column_config.NumberColumn(format="%.2f"),
+                                        "quant_score": st.column_config.NumberColumn(format="%.2f"),
+                                        "jev_score": st.column_config.NumberColumn(format="%.2f",
+                                                                                   help="shadow mode unless validated")})
+            st.download_button("Download ranking (CSV)", v.to_csv(index=False).encode("utf-8"),
+                               file_name=f"factor_ranking_{latest.iloc[0]['rebalance_date']}.csv", mime="text/csv")
+            summ = json.loads(last_run.iloc[0]["summary"]) if not last_run.empty and last_run.iloc[0]["summary"] else {}
+            gate = (summ.get("jev") or {}).get("production_gate")
+            if gate:
+                st.caption(f"Jev production gate: {'ACTIVE' if gate.get('allowed') else 'shadow mode'} — {gate.get('reason')}")
+
+# -------------------------------------------------------------------------------------- current portfolio ---
+with tabs[1]:
     if run_key is None:
         st.info("No completed monthly run yet. Run the bootstrap (`python -m src.pipeline.bootstrap`) and then press "
                 "RUN MONTHLY ANALYSIS.")
@@ -148,7 +183,7 @@ with tabs[0]:
             st.line_chart(hist.set_index("as_of_date"))
 
 # ------------------------------------------------------------------------------------------ opportunities ---
-with tabs[1]:
+with tabs[2]:
     df = signals_frame(["BUY", "WAIT"])
     if df.empty:
         st.info("No BUY/WAIT signals stored yet.")
@@ -157,7 +192,7 @@ with tabs[1]:
                          "change_conditions"]], hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------------------------------------- sells ---
-with tabs[2]:
+with tabs[3]:
     df = signals_frame(["SELL"])
     if df.empty:
         st.info("No SELL signals in the latest run.")
@@ -167,7 +202,7 @@ with tabs[2]:
                      column_config={"unrealized_return": st.column_config.NumberColumn(format="percent")})
 
 # ---------------------------------------------------------------------------------------- security detail ---
-with tabs[3]:
+with tabs[4]:
     syms = q("SELECT DISTINCT symbol FROM signal_history UNION SELECT DISTINCT symbol FROM monthly_rankings "
              "ORDER BY 1")
     if syms.empty:
@@ -239,7 +274,7 @@ with tabs[3]:
             st.markdown("Conditions that would change the state: " + "; ".join(e.get("change_conditions", [])))
 
 # ----------------------------------------------------------------------------------------------- backtest ---
-with tabs[4]:
+with tabs[5]:
     runs = q("SELECT run_id, created_at, kind, git_commit FROM backtest_runs WHERE status='completed' ORDER BY created_at DESC")
     if runs.empty:
         st.info("No backtest runs yet. Run `python -m src.pipeline.bootstrap`.")
@@ -325,7 +360,7 @@ with tabs[4]:
         st.caption(f"Jev feature set: {row['jev_feature_set_id'] or 'not used'} · data snapshot: {row['data_snapshot']}")
 
 # ----------------------------------------------------------------------------------------------- data/jev ---
-with tabs[5]:
+with tabs[6]:
     st.markdown("**Data coverage**")
     st.dataframe(q("SELECT 'securities' AS item, count(*) AS n FROM securities UNION ALL "
                    "SELECT 'delisted securities', count(*) FROM securities WHERE NOT is_active UNION ALL "

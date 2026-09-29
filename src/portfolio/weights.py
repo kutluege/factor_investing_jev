@@ -23,8 +23,35 @@ def cap_weights(w: pd.Series, cap: float, max_iter: int = 50) -> pd.Series:
     return w
 
 
+def cap_sector_weights(w: pd.Series, sectors: pd.Series, sector_cap: float, pos_cap: float,
+                       max_iter: int = 50) -> pd.Series:
+    """Scale down sectors above ``sector_cap`` and redistribute to other sectors (respecting ``pos_cap``)."""
+    sec = sectors.reindex(w.index).fillna("unknown")
+    n_sec = sec.nunique()
+    cap = max(sector_cap, 1.0 / n_sec) if n_sec else 1.0  # infeasible caps are relaxed
+    w = w / w.sum()
+    for _ in range(max_iter):
+        tot = w.groupby(sec).sum()
+        over = tot[tot > cap + 1e-9]
+        if over.empty:
+            break
+        for s_name, t in over.items():
+            m = sec == s_name
+            w[m] *= cap / t
+        free = w.sum()
+        excess = 1.0 - free
+        under = ~sec.isin(over.index) & (w < pos_cap - 1e-12)
+        if not under.any():
+            break
+        w[under] += excess * w[under] / w[under].sum()
+        w = w.clip(upper=pos_cap)
+        w = w / w.sum()
+    return w
+
+
 def target_weights(symbols: list[str], method: str, final_score: pd.Series, vol: pd.Series,
-                   max_weight: float = 0.25) -> pd.Series:
+                   max_weight: float = 0.25, sectors: pd.Series | None = None,
+                   sector_cap: float | None = None) -> pd.Series:
     if not symbols:
         return pd.Series(dtype=float)
     idx = pd.Index(symbols)
@@ -46,4 +73,7 @@ def target_weights(symbols: list[str], method: str, final_score: pd.Series, vol:
     raw = raw.replace([np.inf, -np.inf], np.nan).fillna(0.0).clip(lower=0.0)
     if raw.sum() <= 0:
         raw = pd.Series(1.0, index=idx)
-    return cap_weights(raw, max_weight)
+    w = cap_weights(raw, max_weight)
+    if sectors is not None and sector_cap is not None and sector_cap < 1.0:
+        w = cap_sector_weights(w, sectors, sector_cap, max_weight)
+    return w

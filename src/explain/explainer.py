@@ -60,8 +60,9 @@ def feature_contributions(cross: pd.DataFrame, family_weights: dict[str, float])
             x = x.where(groups.map(lambda g, c=c: feature_applicable(c, g)).astype(bool))
             if x.notna().mean() < pp["min_coverage"]:
                 continue
-            zs[feat] = normalize_feature(x, groups if pp.get("sector_relative") else None, pp["winsorize_mad"],
-                                         pp["min_group_size"])
+            scope = None if (c.get("scope") == "universe" or not pp.get("sector_relative")) else groups
+            zs[feat] = normalize_feature(x, scope, pp["winsorize_mad"], pp["min_group_size"],
+                                         pp.get("transform", "robust_z"))
         if not zs:
             continue
         z = pd.DataFrame(zs)
@@ -79,9 +80,10 @@ def explain(symbol: str, company: str | None, signal: str, reasons: list[str], r
             as_of: pd.Timestamp) -> dict:
     rr = rank_row if rank_row is not None else pd.Series(dtype=object)
     fam = {f: rr.get(f"pct_{f}") for f in FAMILIES}
-    fundamental = np.nanmean([v for v in (fam["value"], fam["quality"], fam["growth"], fam["fundamental_momentum"])
-                              if v is not None and not pd.isna(v)] or [np.nan])
-    momentum = fam["price_momentum"]
+    fundamental_families = [f for f in FAMILIES if f not in ("momentum", "low_risk")]
+    fundamental = np.nanmean([fam[f] for f in fundamental_families
+                              if fam.get(f) is not None and not pd.isna(fam.get(f))] or [np.nan])
+    momentum = fam.get("momentum")
     c = contributions[contributions["symbol"] == symbol].sort_values("contribution")
     def driver(r):
         val = cross_row.get(r.feature) if cross_row is not None else None
@@ -97,7 +99,8 @@ def explain(symbol: str, company: str | None, signal: str, reasons: list[str], r
         "previous_rank": previous_rank,
         "final_score": _f(rr.get("final_score")), "quant_score": _f(rr.get("quant_score")),
         "fundamental_score_pct": _f(fundamental), "momentum_score_pct": _f(momentum),
-        "technical_score_pct": _f(fam["technical_trend"]), "risk_score_pct": _f(fam["risk"]),
+        "technical_score_pct": None,  # technical analysis is applied by the user, not scored by the model
+        "risk_score_pct": _f(fam.get("low_risk")),
         "family_percentiles": {k: _f(v) for k, v in fam.items()},
         "jev_score": _f(rr.get("jev_raw")), "jev_confidence": _f(rr.get("jev_confidence")),
         "jev_answers": (jev or {}).get("answers"), "jev_decision_id": (jev or {}).get("decision_id"),

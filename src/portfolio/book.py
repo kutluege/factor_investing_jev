@@ -63,17 +63,20 @@ class Fill:
 
 
 class BrokerAdapter(Protocol):
-    def execute(self, order: Order, reference_price: float, trade_date: pd.Timestamp) -> Fill | None: ...
+    def execute(self, order: Order, reference_price: float, trade_date: pd.Timestamp,
+                extra_slippage_bps: float = 0.0) -> Fill | None: ...
 
 
 class SimulatedBroker:
     def __init__(self, costs: CostModel):
         self.costs = costs
 
-    def execute(self, order: Order, reference_price: float, trade_date: pd.Timestamp) -> Fill | None:
+    def execute(self, order: Order, reference_price: float, trade_date: pd.Timestamp,
+                extra_slippage_bps: float = 0.0) -> Fill | None:
+        """``extra_slippage_bps``: security-specific cost such as half the estimated bid-ask spread."""
         if reference_price is None or not reference_price > 0 or order.shares <= 0:
             return None
-        slip = self.costs.slippage_bps / 1e4
+        slip = (self.costs.slippage_bps + max(0.0, extra_slippage_bps)) / 1e4
         price = reference_price * (1 + slip) if order.side == "BUY" else reference_price * (1 - slip)
         gross = order.shares * price
         return Fill(order.symbol, order.side, order.shares, price, gross, self.costs.commission_per_trade_usd,

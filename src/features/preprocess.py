@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.special import ndtri
 
 MAD_SCALE = 1.4826
 
@@ -39,16 +40,30 @@ def pct_rank(x: pd.Series) -> pd.Series:
     return x.rank(pct=True, method="average")
 
 
-def normalize_feature(x: pd.Series, groups: pd.Series | None, clip: float, min_group_size: int) -> pd.Series:
-    """Robust z within sector group when the group is large enough, else universe-wide."""
+def rank_normal(x: pd.Series, clip: float | None = None) -> pd.Series:
+    """Rank-based normal scores: Phi^-1((rank - 0.5) / n). Outlier-proof; NaN stays NaN."""
+    valid = x.dropna()
+    if len(valid) < 3:
+        return pd.Series(np.nan, index=x.index)
+    r = (valid.rank(method="average") - 0.5) / len(valid)
+    return pd.Series(ndtri(r.to_numpy()), index=valid.index).reindex(x.index)
+
+
+def _standardize(x: pd.Series, clip: float, transform: str) -> pd.Series:
+    return rank_normal(x) if transform == "rank" else robust_z(x, clip)
+
+
+def normalize_feature(x: pd.Series, groups: pd.Series | None, clip: float, min_group_size: int,
+                      transform: str = "robust_z") -> pd.Series:
+    """Standardize within sector group when the group is large enough, else universe-wide."""
     if groups is None:
-        return robust_z(x, clip)
+        return _standardize(x, clip, transform)
     out = pd.Series(np.nan, index=x.index)
-    universe_z = robust_z(x, clip)
+    universe_z = _standardize(x, clip, transform)
     for _g, idx in groups.groupby(groups).groups.items():
         sub = x.loc[idx]
         if sub.notna().sum() >= min_group_size:
-            out.loc[idx] = robust_z(sub, clip)
+            out.loc[idx] = _standardize(sub, clip, transform)
         else:
             out.loc[idx] = universe_z.loc[idx]
     ungrouped = groups.isna()
@@ -88,7 +103,9 @@ def family_scores(features: pd.DataFrame, groups: pd.Series, factors_cfg: dict) 
             if coverage < min_cov:
                 diag["dropped_low_coverage"].append(feat)
                 continue
-            zs.append(normalize_feature(x, grp, clip, pp["min_group_size"]).rename(feat))
+            scope_groups = None if fcfg.get("scope") == "universe" else grp
+            zs.append(normalize_feature(x, scope_groups, clip, pp["min_group_size"],
+                                        pp.get("transform", "robust_z")).rename(feat))
         if not zs:
             fam_z[family] = pd.Series(np.nan, index=features.index)
             continue

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import duckdb
@@ -99,12 +100,12 @@ def build_security_master(con: duckdb.DuckDBPyConnection, fmp: FmpClient | None,
                     "reference_market_cap": r.get("marketCap"),
                     "is_active": bool(r.get("isActivelyTrading", True))})
 
-    # 3) FMP delisted companies (survivorship). Paginated; may be plan-restricted.
+    # 3) FMP delisted-companies list (only page 0 on Starter; paid Premium plans return the full history).
+    fcfg = load_config("data")["fmp"]
     delisted = 0
     if fmp is not None:
         try:
-            page = 0
-            while page < 200:
+            for page in range(int(fcfg.get("delisted_max_pages", 1))):
                 rows = fmp.delisted_companies(page=page, limit=100)
                 if not rows:
                     break
@@ -119,39 +120,64 @@ def build_security_master(con: duckdb.DuckDBPyConnection, fmp: FmpClient | None,
                                     "delisted_date": _to_date(r.get("delistedDate")),
                                     "reference_source": "fmp_delisted"}
                     delisted += 1
-                page += 1
-            report["sources"]["fmp_delisted_companies"] = f"{delisted} NASDAQ delisted securities"
+            report["sources"]["fmp_delisted_companies"] = f"{delisted} NASDAQ delisted securities (recent list)"
         except ApiError as exc:
             report["sources"]["fmp_delisted_companies"] = f"unavailable: {exc}"
-            report["limitations"].append(
-                "Delisted-company list unavailable: historical universes contain only securities that are still "
-                "listed today (plus any delisted names already stored). Backtests are NOT survivorship-bias free.")
+
+    # 3b) Inactive-symbol discovery (survivorship): every symbol FMP knows minus those actively trading, profiled
+    #     to recover exchange, sector, CIK and IPO date. Profiles of inactive symbols are cached for 30 days.
+    inactive_found = 0
+    if fmp is not None:
+        try:
+            all_syms = {str(r.get("symbol", "")).upper(): r.get("companyName") for r in fmp.stock_list()}
+            active = {str(r.get("symbol", "")).upper() for r in fmp.actively_trading_list()}
+            candidates = [sym for sym, name in all_syms.items()
+                          if sym not in active and sym not in records and _plausible_us_common(sym, name, ucfg)]
+            candidates = candidates[: int(fcfg.get("max_delisted_profiles_per_run", 20000))]
+            profiles = profiles_parallel(fmp, candidates, ttl_hours=fcfg["ttl_hours"].get("inactive_profile", 720))
+            for sym, prof in profiles.items():
+                if not prof or str(prof.get("exchange", "")).upper() != "NASDAQ" or prof.get("isActivelyTrading"):
+                    continue
+                if prof.get("isEtf") or prof.get("isFund") or prof.get("isAdr"):
+                    continue
+                records[sym] = {"symbol": sym, "name": prof.get("companyName"), "exchange": "NASDAQ",
+                                "is_active": False, "sector": prof.get("sector"), "industry": prof.get("industry"),
+                                "cik": str(prof["cik"]).zfill(10) if prof.get("cik") else None,
+                                "ipo_date": _to_date(prof.get("ipoDate")), "reference_source": "fmp_inactive_profile"}
+                inactive_found += 1
+            report["sources"]["fmp_inactive_discovery"] = (f"{len(candidates)} inactive symbols profiled, "
+                                                            f"{inactive_found} NASDAQ common stocks recovered")
+        except BudgetExhausted as exc:
+            report["sources"]["fmp_inactive_discovery"] = f"budget/bandwidth exhausted: {exc}"
+        except ApiError as exc:
+            report["sources"]["fmp_inactive_discovery"] = f"unavailable: {exc}"
 
     if not records:
         raise RuntimeError("No reference data could be loaded from SEC or FMP.")
 
-    # 3b) Delisted names carry no sector in the delisted list: classify them via FMP profiles (budget-limited),
-    #     otherwise they would silently drop out of the universe and re-introduce survivorship bias.
+    # 3c) Profiles for delisted-list names and active target-sector names (sector, CIK, IPO date, ADR flag).
     if fmp is not None:
-        max_profiles = int(load_config("data")["fmp"].get("max_delisted_profiles_per_run", 150))
-        todo = [r for r in records.values() if not r.get("is_active") and not r.get("sector")][:max_profiles]
-        classified = 0
+        todo = [r for r in records.values()
+                if (not r.get("is_active") and not r.get("sector"))
+                or (r.get("is_active") and r.get("sector")
+                    and classify(r.get("sector"), r.get("industry"), None, ucfg)[0] is not None)]
+        try:
+            profiles = profiles_parallel(fmp, [r["symbol"] for r in todo], ttl_hours=fcfg["ttl_hours"]["reference"])
+        except BudgetExhausted:
+            profiles = {}
+            report["limitations"].append("FMP budget exhausted while fetching profiles; retried on the next run.")
         for rec in todo:
-            try:
-                prof = fmp.profile(rec["symbol"])
-            except BudgetExhausted:
-                report["limitations"].append("FMP budget exhausted while classifying delisted companies; "
-                                             "remaining delisted names are classified on later runs.")
-                break
-            except ApiError:
+            prof = profiles.get(rec["symbol"])
+            if not prof:
                 continue
-            if prof:
-                rec["sector"], rec["industry"] = prof.get("sector"), prof.get("industry")
-                if prof.get("cik"):
-                    rec["cik"] = str(prof["cik"]).zfill(10)
-                rec["ipo_date"] = rec.get("ipo_date") or _to_date(prof.get("ipoDate"))
-                classified += 1
-        report["sources"]["fmp_profiles_for_delisted"] = f"{classified}/{len(todo)} classified"
+            rec["sector"] = rec.get("sector") or prof.get("sector")
+            rec["industry"] = rec.get("industry") or prof.get("industry")
+            if prof.get("cik") and not rec.get("cik"):
+                rec["cik"] = str(prof["cik"]).zfill(10)
+            rec["ipo_date"] = rec.get("ipo_date") or _to_date(prof.get("ipoDate"))
+            if prof.get("isAdr"):
+                rec["is_adr"] = True
+        report["sources"]["fmp_profiles"] = f"{sum(1 for v in profiles.values() if v)}/{len(todo)} profiles"
 
     # 4) SIC fallback for names FMP did not classify (SEC submissions; free, ~8 req/s).
     if sec is not None and fetch_sic_for_unclassified:
@@ -177,7 +203,7 @@ def build_security_master(con: duckdb.DuckDBPyConnection, fmp: FmpClient | None,
         excluded = is_excluded_instrument(rec["symbol"], rec.get("name"), ucfg)
         if group is None and source == "unclassified" and not rec.get("is_active"):
             unclassified_delisted += 1
-        if group is None or excluded or rec.get("is_etf") or rec.get("is_fund"):
+        if group is None or excluded or rec.get("is_etf") or rec.get("is_fund") or rec.get("is_adr"):
             continue
         rows.append({
             "symbol": rec["symbol"], "cik": rec.get("cik"), "name": rec.get("name"), "exchange": "NASDAQ",
@@ -202,10 +228,51 @@ def build_security_master(con: duckdb.DuckDBPyConnection, fmp: FmpClient | None,
     report["limitations"].append(
         "Sector/industry classifications are current snapshots (FMP profile or SEC SIC), not point-in-time.")
     # 'partial' when FMP classification/delisting sources failed: the next run rebuilds instead of reusing it
-    complete = bool(fmp_rows) and "unavailable" not in str(report["sources"].get("fmp_delisted_companies", ""))
+    disc = str(report["sources"].get("fmp_inactive_discovery", "unavailable"))
+    complete = bool(fmp_rows) and "unavailable" not in disc and "exhausted" not in disc
+    n_inactive = int((~df["is_active"].astype(bool)).sum()) if not df.empty else 0
+    report["delisted_in_universe"] = n_inactive
+    if n_inactive == 0:
+        report["limitations"].append("No delisted securities in the universe: backtests are NOT survivorship-bias free.")
+    else:
+        report["limitations"].append(
+            "Delisted companies are recovered from FMP symbol lists; tickers later reused by another company and "
+            "companies FMP no longer lists remain missing (residual survivorship bias).")
     report["status"] = "ok" if complete else "partial"
     set_status(con, "reference", "security_master", report["status"], str(report["sources"]))
     return report
+
+
+_OTC_FOREIGN = re.compile(r"^[A-Z]{4}[FY]$")  # OTC foreign ordinaries / ADRs (e.g. BNRPF, DSSMY)
+_NON_OPERATING = re.compile(r"(?i)\b(etf|fund|trust|index|portfolio|municipal|income shares)\b")
+
+
+def _plausible_us_common(sym: str, name: str | None, ucfg: dict) -> bool:
+    if not re.fullmatch(r"[A-Z]{1,5}", sym) or _OTC_FOREIGN.match(sym):
+        return False
+    return is_excluded_instrument(sym, name, ucfg) is None and not _NON_OPERATING.search(name or "")
+
+
+def profiles_parallel(fmp: FmpClient, symbols: list[str], ttl_hours: float | None, workers: int = 4) -> dict:
+    """Fetch profiles concurrently (the client's shared rate limiter keeps the rate within the plan)."""
+    out: dict[str, dict | None] = {}
+    if not symbols:
+        return out
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(fmp.profile, s, ttl_hours): s for s in symbols}
+        for i, f in enumerate(as_completed(futs), 1):
+            sym = futs[f]
+            try:
+                out[sym] = f.result()
+            except BudgetExhausted:
+                pool.shutdown(cancel_futures=True)
+                raise
+            except ApiError as exc:
+                log.debug("profile %s: %s", sym, exc)
+                out[sym] = None
+            if i % 500 == 0:
+                log.info("profiles: %d/%d", i, len(symbols))
+    return out
 
 
 def benchmark_symbols() -> list[str]:

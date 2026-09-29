@@ -51,7 +51,7 @@ def small_search(monkeypatch):
             s["cost_multipliers"] = [1.0, 2.0]
             s["defaults"]["portfolio_size"] = 5
             cfg["family_presets"] = {k: v for k, v in cfg["family_presets"].items()
-                                     if k in ("balanced", "momentum_trend", "ic_weighted_126")}
+                                     if k in ("literature", "momentum_only", "literature_ic_shrunk")}
         if name == "jev":
             cfg["candidate_pool"]["top_n"] = 8
             cfg["candidate_pool"]["boundary_extra"] = 2

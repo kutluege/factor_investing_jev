@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Any
 
@@ -47,59 +48,88 @@ def _prices_frame(symbol: str, raw: list[dict], adjusted: list[dict] | None) -> 
 
 
 def load_prices(con: duckdb.DuckDBPyConnection, fmp: FmpClient, symbols: list[str], end: date | None = None,
-                fetch_dividend_adjusted: bool = True, max_symbols: int | None = None) -> dict[str, Any]:
-    """Load or incrementally update daily prices. Stops cleanly when the FMP budget is exhausted."""
+                fetch_dividend_adjusted: bool = True, max_symbols: int | None = None,
+                workers: int = 4) -> dict[str, Any]:
+    """Load or incrementally update daily prices. Stops cleanly when the FMP budget is exhausted.
+
+    HTTP fetches run on ``workers`` threads (the client's shared rate limiter enforces the plan's request
+    rate); every database write happens on the calling thread.
+    """
     cfg = load_config("data")["fmp"]
     end = end or date.today()
-    default_start = end - timedelta(days=int(365.25 * cfg["history_years"]))
+    if cfg.get("history_start"):
+        default_start = pd.Timestamp(cfg["history_start"]).date()
+    else:
+        default_start = end - timedelta(days=int(365.25 * cfg.get("history_years", 5)))
     last_dates = dict(con.execute("SELECT symbol, max(date) FROM daily_prices GROUP BY symbol").fetchall())
     report = {"requested": 0, "loaded": 0, "up_to_date": 0, "failed": {}, "stopped_reason": None,
               "dividend_adjusted": fetch_dividend_adjusted}
-    div_adj_ok = fetch_dividend_adjusted
-    for i, sym in enumerate(symbols):
-        if max_symbols is not None and report["requested"] >= max_symbols:
-            report["stopped_reason"] = f"max_symbols={max_symbols}"
-            break
+    state = {"div_adj_ok": fetch_dividend_adjusted}
+
+    todo = []
+    for sym in symbols:
         last = last_dates.get(sym)
         if last is not None and (end - last).days <= 0:
             report["up_to_date"] += 1
             continue
+        todo.append(sym)
+    if max_symbols is not None and len(todo) > max_symbols:
+        todo = todo[:max_symbols]
+        report["stopped_reason"] = f"max_symbols={max_symbols}"
+
+    def fetch(sym: str):
+        last = last_dates.get(sym)
         # Incremental windows start ON the last stored date so the overlap can chain adjusted prices.
         start = default_start if last is None else last
-        report["requested"] += 1
-        try:
-            raw = fmp.historical_prices(sym, start, end)
-            adjusted = None
-            if div_adj_ok and raw:
-                try:
-                    adjusted = fmp.dividend_adjusted_prices(sym, start, end)
-                except PlanRestricted as exc:
-                    div_adj_ok = False
-                    report["dividend_adjusted"] = f"unavailable ({exc}); adj_close = split-adjusted close"
-            df = _prices_frame(sym, raw, adjusted)
-            if last is not None and not df.empty and _rebased(con, sym, last, df):
-                # vendor re-based history (split or correction): replace the whole stored series
-                log.info("prices: %s history re-based by vendor; reloading full window", sym)
-                raw = fmp.historical_prices(sym, default_start, end)
-                adjusted = fmp.dividend_adjusted_prices(sym, default_start, end) if div_adj_ok else None
+        raw = fmp.historical_prices(sym, start, end)
+        adjusted = None
+        if state["div_adj_ok"] and raw:
+            try:
+                adjusted = fmp.dividend_adjusted_prices(sym, start, end)
+            except PlanRestricted as exc:
+                state["div_adj_ok"] = False
+                report["dividend_adjusted"] = f"unavailable ({exc}); adj_close = split-adjusted close"
+        return raw, adjusted
+
+    stop = False
+    chunk = 40
+    for c0 in range(0, len(todo), chunk):
+        batch = todo[c0:c0 + chunk]
+        results: dict[str, Any] = {}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {pool.submit(fetch, s): s for s in batch}
+            for f in as_completed(futs):
+                results[futs[f]] = f
+        for sym in batch:
+            report["requested"] += 1
+            last = last_dates.get(sym)
+            try:
+                raw, adjusted = results[sym].result()
                 df = _prices_frame(sym, raw, adjusted)
-                con.execute("DELETE FROM daily_prices WHERE symbol = ?", [sym])
-                report.setdefault("rebased", []).append(sym)
-            elif last is not None and not df.empty:
-                df = chain_adjusted(con, sym, last, df)
-            if not df.empty:
-                upsert_df(con, "daily_prices", df, ["symbol", "date"], replace=True)
-                report["loaded"] += 1
-            set_status(con, "prices", sym, "ok" if not df.empty else "empty")
-        except BudgetExhausted as exc:
-            report["stopped_reason"] = str(exc)
-            set_status(con, "prices", sym, "pending", "budget exhausted")
+                if last is not None and not df.empty and _rebased(con, sym, last, df):
+                    # vendor re-based history (split or correction): replace the whole stored series
+                    log.info("prices: %s history re-based by vendor; reloading full window", sym)
+                    raw = fmp.historical_prices(sym, default_start, end)
+                    adjusted = fmp.dividend_adjusted_prices(sym, default_start, end) if state["div_adj_ok"] else None
+                    df = _prices_frame(sym, raw, adjusted)
+                    con.execute("DELETE FROM daily_prices WHERE symbol = ?", [sym])
+                    report.setdefault("rebased", []).append(sym)
+                elif last is not None and not df.empty:
+                    df = chain_adjusted(con, sym, last, df)
+                if not df.empty:
+                    upsert_df(con, "daily_prices", df, ["symbol", "date"], replace=True)
+                    report["loaded"] += 1
+                set_status(con, "prices", sym, "ok" if not df.empty else "empty")
+            except BudgetExhausted as exc:
+                report["stopped_reason"] = str(exc)
+                set_status(con, "prices", sym, "pending", "budget exhausted")
+                stop = True
+            except ApiError as exc:
+                report["failed"][sym] = str(exc)[:200]
+                set_status(con, "prices", sym, "failed", str(exc))
+        log.info("prices: %d/%d symbols processed", min(c0 + chunk, len(todo)), len(todo))
+        if stop:
             break
-        except ApiError as exc:
-            report["failed"][sym] = str(exc)[:200]
-            set_status(con, "prices", sym, "failed", str(exc))
-        if (i + 1) % 25 == 0:
-            log.info("prices: %d/%d symbols processed", i + 1, len(symbols))
     refresh_price_dates(con)
     return report
 
@@ -132,6 +162,11 @@ def refresh_price_dates(con: duckdb.DuckDBPyConnection) -> None:
         UPDATE securities SET first_price_date = p.first_d, last_price_date = p.last_d
         FROM (SELECT symbol, min(date) AS first_d, max(date) AS last_d FROM daily_prices GROUP BY symbol) p
         WHERE securities.symbol = p.symbol
+    """)
+    # an inactive security without a vendor delisting date is treated as delisted after its last trading day
+    con.execute("""
+        UPDATE securities SET delisted_date = last_price_date + INTERVAL 1 DAY
+        WHERE NOT is_active AND delisted_date IS NULL AND last_price_date IS NOT NULL
     """)
 
 

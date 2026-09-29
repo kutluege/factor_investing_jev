@@ -1,69 +1,49 @@
-# Candidate features grouped into factor families. direction: +1 higher is better, -1 lower is better.
-# applies_to: sector groups where the feature is meaningful (omit = all groups).
+# Factor model v2: literature-grounded themes (see docs/RESEARCH.md for sources and exact definitions).
+# direction: +1 higher is better, -1 lower is better.
+# only_groups / exclude_groups: sector groups where the characteristic is meaningful.
+# scope: sector (rank within sector group; default for accounting ratios) | universe (rank across all names;
+#        used for price-based signals, per the literature).
+# Technical-analysis indicators are deliberately NOT part of the model: the user applies technical analysis
+# separately. They are still computed and stored for display (technical_values).
+version: 2
 families:
-  value:
-    earnings_yield:        {direction: 1, exclude_groups: [biotechnology]}
-    fcf_yield:             {direction: 1}
-    ebit_ev:               {direction: 1, exclude_groups: [biotechnology]}
-    sales_ev:              {direction: 1}
-    book_to_market:        {direction: 1}
-    cash_to_mcap:          {direction: 1, only_groups: [biotechnology]}
+  momentum:
+    res_mom_12_2:     {direction: 1, scope: universe}   # Blitz, Huij & Martens (2011) residual momentum
+    dist_52w_high:    {direction: 1, scope: universe}   # George & Hwang (2004)
+    mom_12_1:         {direction: 1, scope: universe}   # Jegadeesh & Titman (1993)
+    mom_12_7:         {direction: 1, scope: universe}   # Novy-Marx (2012) intermediate momentum
+    sector_mom_6m:    {direction: 1, scope: universe, only_groups: [energy, metals_mining]}  # industry momentum
   quality:
-    roic:                  {direction: 1, exclude_groups: [biotechnology]}
-    roe:                   {direction: 1, exclude_groups: [biotechnology]}
-    roa:                   {direction: 1}
-    gross_profitability:   {direction: 1}
-    operating_margin:      {direction: 1, exclude_groups: [biotechnology]}
-    fcf_margin:            {direction: 1, exclude_groups: [biotechnology]}
-    cash_conversion:       {direction: 1, exclude_groups: [biotechnology]}
-    debt_to_assets:        {direction: -1}
-    net_debt_to_assets:    {direction: -1}
-    interest_coverage:     {direction: 1, exclude_groups: [biotechnology]}
-    cash_runway_years:     {direction: 1, only_groups: [biotechnology]}
-    rd_intensity:          {direction: 1, only_groups: [biotechnology]}
-  growth:
-    revenue_yoy:           {direction: 1}
-    revenue_cagr_2y:       {direction: 1}
-    eps_growth:            {direction: 1, exclude_groups: [biotechnology]}
-    ebitda_growth:         {direction: 1, exclude_groups: [biotechnology]}
-    fcf_growth:            {direction: 1, exclude_groups: [biotechnology]}
-    gross_profit_growth:   {direction: 1}
+    cop_at:           {direction: 1}                    # Ball et al. (2016) cash-based operating profitability
+    gross_profitability: {direction: 1}                 # Novy-Marx (2013) GP / assets
+    fscore:           {direction: 1, exclude_groups: [biotechnology]}  # Piotroski (2000)
+  investment:
+    asset_growth:     {direction: -1}                   # Cooper, Gulen & Schill (2008)
+    share_issuance:   {direction: -1}                   # Pontiff & Woodgate (2008)
+    cash_runway_years: {direction: 1, only_groups: [biotechnology]}    # dilution-risk proxy for cash burners
+  value:
+    ebit_ev:          {direction: 1, exclude_groups: [biotechnology]}
+    ocf_ev:           {direction: 1, exclude_groups: [biotechnology]}
+    book_to_market:   {direction: 1}
+    rd_intensity:     {direction: 1, only_groups: [technology, biotechnology]}  # Chan, Lakonishok & Sougiannis (2001)
+    cash_to_mcap:     {direction: 1, only_groups: [biotechnology]}
   fundamental_momentum:
-    revenue_growth_accel:  {direction: 1}
-    operating_margin_chg:  {direction: 1, exclude_groups: [biotechnology]}
-    roic_chg:              {direction: 1, exclude_groups: [biotechnology]}
-    fcf_margin_chg:        {direction: 1, exclude_groups: [biotechnology]}
-    eps_accel:             {direction: 1, exclude_groups: [biotechnology]}
-    leverage_chg:          {direction: -1}
-    share_dilution_yoy:    {direction: -1}
-  price_momentum:
-    ret_3m:                {direction: 1}
-    ret_6m:                {direction: 1}
-    mom_6_1:               {direction: 1}
-    mom_12_1:              {direction: 1}
-    rs_qqq_6m:             {direction: 1}
-    rs_sector_6m:          {direction: 1}
-    dist_52w_high:         {direction: 1}
-  technical_trend:
-    price_sma200:          {direction: 1}
-    sma50_sma200:          {direction: 1}
-    macd_hist_norm:        {direction: 1}
-    adx14_trend:           {direction: 1}
-    breakout_60d:          {direction: 1}
-    volume_ratio_20d:      {direction: 1}
-  risk:
-    vol_60d:               {direction: -1}
-    vol_20d:               {direction: -1}
-    atr14_pct:             {direction: -1}
-    beta_qqq_252d:         {direction: -1}
-    max_dd_252d:           {direction: 1}   # max drawdown is negative; closer to zero is better
+    droe:             {direction: 1, exclude_groups: [biotechnology]}  # Hou, Mo, Xue & Zhang (2021)
+    sue:              {direction: 1}                    # standardized unexpected earnings (seasonal random walk)
+  low_risk:
+    max_ret_21d:      {direction: -1, scope: universe}  # Bali, Cakici & Whitelaw (2011) MAX
+    idio_vol_60d:     {direction: -1, scope: universe}  # Ang et al. (2006)
+  growth:                                               # weak in the literature; zero weight in core presets
+    revenue_yoy:      {direction: 1}
+    gross_profit_growth: {direction: 1}
 
 preprocessing:
-  winsorize_mad: 5.0          # clip robust z at +/- this many scaled MADs before re-standardizing
-  min_coverage: 0.30          # feature is dropped at a rebalance if fewer than this share of names have it
-  min_features_per_family: 1  # a name needs at least this many features to receive a family score
-  sector_relative: true       # normalize within sector group when the group has enough names
-  min_group_size: 8           # below this, fall back to universe-wide normalization
+  transform: rank             # rank -> normal scores (robust to outliers); alternative: robust_z
+  winsorize_mad: 5.0          # used when transform = robust_z
+  min_coverage: 0.30          # a characteristic is dropped at a rebalance if fewer than this share of names have it
+  min_features_per_family: 1  # a name needs at least this many characteristics to receive a family score
+  sector_relative: true       # accounting characteristics are ranked within sector group
+  min_group_size: 8           # below this, fall back to universe-wide ranking
 
-# Forward targets for research diagnostics (trading days).
-horizons: [63, 126]
+# Forward labels for research diagnostics and factor-momentum tilts (trading days).
+horizons: [21, 63, 126]

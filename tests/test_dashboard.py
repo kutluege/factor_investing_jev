@@ -17,7 +17,7 @@ def test_dashboard_renders_all_views(e2e):  # noqa: F811
     assert not at.exception, at.exception
     labels = [b.label for b in at.button]
     assert "RUN MONTHLY ANALYSIS" in labels
-    assert len(at.tabs) == 6
+    assert len(at.tabs) == 7
     # every view rendered data rather than the empty-state message
     info_text = " ".join(i.value for i in at.info)
     assert "No completed monthly run yet" not in info_text

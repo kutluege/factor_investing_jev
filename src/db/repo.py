@@ -1,6 +1,7 @@
 """Small persistence helpers shared by loaders and pipelines."""
 from __future__ import annotations
 
+import threading
 from datetime import UTC, date, datetime
 
 import duckdb
@@ -16,17 +17,20 @@ class RequestLog:
 
     def __init__(self, con: duckdb.DuckDBPyConnection):
         self.con = con
+        self._lock = threading.Lock()  # fetchers may run in worker threads; DuckDB connections are not
 
     def __call__(self, provider: str, endpoint: str, status: int | None, from_cache: bool, latency_ms: float,
                  error: str | None) -> None:
-        self.con.execute("INSERT INTO api_requests VALUES (?, ?, ?, ?, ?, ?, ?)",
-                         [utcnow(), provider, endpoint, status, from_cache, latency_ms, error])
+        with self._lock:
+            self.con.execute("INSERT INTO api_requests VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             [utcnow(), provider, endpoint, status, from_cache, latency_ms, error])
 
     def live_calls_today(self, provider: str) -> int:
         start = datetime.combine(date.today(), datetime.min.time())
-        row = self.con.execute(
-            "SELECT count(*) FROM api_requests WHERE provider = ? AND NOT from_cache AND ts >= ? "
-            "AND (status_code IS NOT NULL)", [provider, start]).fetchone()
+        with self._lock:
+            row = self.con.execute(
+                "SELECT count(*) FROM api_requests WHERE provider = ? AND NOT from_cache AND ts >= ? "
+                "AND (status_code IS NOT NULL)", [provider, start]).fetchone()
         return int(row[0])
 
     def summary(self) -> pd.DataFrame:
