@@ -88,6 +88,81 @@ def load_data(db: str = typer.Option(None), force_reference: bool = typer.Option
     print_json("data snapshot", data_snapshot(ctx.con))
 
 
+@app.command("build-features")
+def build_features_cmd(db: str = typer.Option(None)) -> None:
+    """Rebuild the point-in-time feature panel and labels for all rebalance dates (no API calls)."""
+    import time
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    t0 = time.time()
+    panel = build_features(ctx.con)
+    print_json("features", {"rebalance_dates": int(panel["rebalance_date"].nunique()), "rows": int(len(panel)),
+                            "eligible_rows": int(panel["base_eligible"].sum()),
+                            "exclusions": panel["exclusion_reason"].value_counts().to_dict(),
+                            "seconds": round(time.time() - t0)})
+
+
+@app.command("factor-ic")
+def factor_ic(db: str = typer.Option(None)) -> None:
+    """Descriptive characteristic research (rank IC, top-quintile excess) -> docs/FACTOR_IC.md."""
+    import pandas as pd
+
+    from src.backtest.factor_analysis import by_subperiod, characteristic_ic, to_markdown
+    from src.config import PROJECT_ROOT, load_config
+    from src.features.store import load_labels, load_panel
+    from src.model.scoring import ScoreCache, default_config
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    cache = ScoreCache(load_panel(ctx.con))
+    labels = {h: load_labels(ctx.con, h) for h in load_config("factors")["horizons"]}
+    d = default_config()
+    start = pd.Timestamp(load_config("backtest")["start_date"])
+    full = characteristic_ic(cache, labels, d.min_market_cap, d.min_adv20, start)
+    subs = by_subperiod(cache, labels, d.min_market_cap, d.min_adv20,
+                        ["2011-06-30", "2016-01-01", "2021-01-01", "2026-12-31"])
+    md = ["# Characteristic research (descriptive)", "",
+          f"Universe: market cap >= ${d.min_market_cap / 1e6:.0f}M, ADV20 >= ${d.min_adv20 / 1e6:.0f}M, "
+          f"rebalances from {start.date()}. Rank IC = Spearman correlation with the forward return; top-quintile "
+          "excess = mean forward return of the best 20% minus the eligible-universe mean (the long-only relevant "
+          "statistic). Signals were fixed from the literature beforehand; this table is not used to select them.", ""]
+    for h in sorted(full["horizon"].unique()):
+        md += [f"## Horizon {h} sessions (2011–2026)", "", to_markdown(full, h), ""]
+    md += ["## Sub-period stability (126-session horizon)", ""]
+    for name, df in subs.items():
+        md += [f"### {name}", "", to_markdown(df, 126), ""]
+    path = PROJECT_ROOT / "docs" / "FACTOR_IC.md"
+    path.write_text("\n".join(md), encoding="utf-8")
+    full.to_csv(PROJECT_ROOT / "data" / "logs" / "factor_ic.csv", index=False)
+    console.print(f"wrote {path}")
+
+
+@app.command("set-incumbent")
+def set_incumbent(model_id: str, reason: str = typer.Option(..., help="why (stored in the audit trail)"),
+                  db: str = typer.Option(None)) -> None:
+    """Append a new incumbent version for a stored model (audited; earlier versions are never modified)."""
+    import json
+    import uuid
+
+    import pandas as pd
+
+    from src.db.repo import utcnow
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    if ctx.con.execute("SELECT count(*) FROM factor_models WHERE model_id = ?", [model_id]).fetchone()[0] == 0:
+        console.print(f"[red]unknown model {model_id}[/]")
+        raise typer.Exit(1)
+    prev = ctx.con.execute("SELECT version_id FROM model_versions WHERE role = 'incumbent' ORDER BY created_at DESC "
+                           "LIMIT 1").fetchone()
+    vid = "v_" + uuid.uuid4().hex[:12]
+    today = pd.Timestamp.today().normalize()
+    ctx.con.execute("INSERT INTO model_versions VALUES (?, ?, 'incumbent', ?, NULL, NULL, ?, ?)",
+                    [vid, model_id, today.date(), json.dumps({"manual": True, "reason": reason}), utcnow()])
+    ctx.con.execute("INSERT INTO promotion_decisions VALUES (?, ?, ?, ?, true, ?, ?, ?)",
+                    ["p_" + uuid.uuid4().hex[:12], today.date(), prev[0] if prev else None, vid,
+                     json.dumps({"manual_override": True}), json.dumps({"reason": reason}), utcnow()])
+    console.print(f"[green]incumbent set[/]: {model_id} as version {vid}")
+
+
 @app.command()
 def report(run_id: str = typer.Argument(None), db: str = typer.Option(None)) -> None:
     """Write docs/RESULTS.md for a stored research run (latest by default)."""

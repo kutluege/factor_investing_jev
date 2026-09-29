@@ -114,7 +114,9 @@ def test_research_run_persisted_with_reproducibility_metadata(e2e):
     metrics = json.loads(run[5])
     assert json.loads(run[3])["backtest"]["costs"]["slippage_bps"] > 0     # costs recorded explicitly
     assert len(json.loads(run[4])) >= 2                                   # fold definitions stored
-    assert "quant_only" in metrics["nested_walk_forward"] and "quant_plus_jev" in metrics["nested_walk_forward"]
+    nw = metrics["nested_walk_forward"]
+    assert {"fixed_prior", "promotion_quant_only", "free_selection_quant_only", "promotion_with_jev"} <= set(nw)
+    assert all("reason" in p for p in nw["promotion_quant_only"]["picks"])
     assert metrics["jev"]["resolved_version"].startswith("unknown")
     assert run[6] is not None                                              # Jev feature set recorded
     n_models = con.execute("SELECT count(*) FROM factor_models").fetchone()[0]

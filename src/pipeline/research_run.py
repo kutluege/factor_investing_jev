@@ -182,7 +182,10 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
         inc_id = researcher.evaluate(inc["config"], "incumbent")
     summary = researcher.summary()
     validation = overfitting_report(researcher, rr, folds)
-    best_id = rr.best_id
+    # The production model is the outcome of the incumbent/challenger process (what production would hold now),
+    # not the configuration that looks best in hindsight on all folds.
+    prod = rr.nested.get("promotion_quant_only", {})
+    best_id = prod.get("final_model_id") or rr.best_id
     best_cfg = rr.configs[best_id]
     best_res = bt.run(best_cfg, record_rankings=True)
     best_metrics = performance(best_res.equity, bench, best_res.trades)

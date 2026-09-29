@@ -43,7 +43,9 @@ def monthly_returns(close: pd.DataFrame) -> pd.DataFrame:
     m = close.resample("ME").last()
     # a month without any trade for the symbol stays NaN (no stale carry-forward)
     traded = close.notna().resample("ME").sum() > 0
-    return m.pct_change(fill_method=None).where(traded)
+    r = m.pct_change(fill_method=None).where(traded)
+    # vendor glitches (zero prices, bad prints) produce infinite or absurd returns: treat as missing
+    return r.replace([np.inf, -np.inf], np.nan).where(lambda x: x.abs() <= 10.0)
 
 
 def residual_momentum(mret: pd.DataFrame, mkt: pd.Series, sector_map: dict[str, str], at: pd.Timestamp,
@@ -58,8 +60,10 @@ def residual_momentum(mret: pd.DataFrame, mkt: pd.Series, sector_map: dict[str, 
     out: dict[str, float] = {}
     form_mask = np.zeros(len(hist), dtype=bool)
     form_mask[-12:-1] = True  # months t-12 .. t-2 (skip the most recent month)
-    mv = m.to_numpy(float)
-    Yall = hist.to_numpy(float)
+    mv = m.to_numpy(float, copy=True)
+    Yall = hist.to_numpy(float, copy=True)
+    Yall[~np.isfinite(Yall)] = np.nan
+    mv[~np.isfinite(mv)] = np.nan
     complete = ~np.isnan(Yall).any(axis=0) & ~np.isnan(mv).any()
     cols = np.array(hist.columns)
 
@@ -71,6 +75,7 @@ def residual_momentum(mret: pd.DataFrame, mkt: pd.Series, sector_map: dict[str, 
 
     for g, members in groups.groupby(groups).groups.items():
         sv = sec_ret[g].to_numpy(float) if g in sec_ret else np.zeros(len(hist))
+        sv = np.where(np.isfinite(sv), sv, np.nan)
         idx = np.array([hist.columns.get_loc(s) for s in members])
         # fast path: stocks with a complete window share one design matrix -> one multi-RHS least squares
         full = idx[complete[idx]] if not np.isnan(sv).any() else np.array([], dtype=int)

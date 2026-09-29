@@ -55,6 +55,11 @@ search:
   # Stage 2: seeded random sample of the full grid. It does not depend on any results, so nested walk-forward
   # selection over Stage 1 + Stage 2 candidates is not contaminated by full-sample performance.
   random_configs: 160
+  # Pre-specified diversification rules for configurations eligible to become the production model
+  # (tiny or single-theme portfolios are researched and reported, but never selected).
+  min_portfolio_size_for_selection: 15
+  min_market_cap_for_selection: 300000000
+  selection_excluded_presets: [momentum_only]
 
 # Theme weights. "literature" follows the published-evidence synthesis in docs/RESEARCH.md; the others are
 # deliberately few, interpretable alternatives (no free-form weight optimisation).

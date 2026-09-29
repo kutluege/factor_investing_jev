@@ -53,7 +53,9 @@ def render(con: duckdb.DuckDBPyConnection, run_id: str | None = None) -> str:
         met = n.get("metrics") or {}
         if met:
             lines.append(_metrics_row(n.get("label", key), met))
-    wf = m.get("nested_walk_forward", {}).get("quant_only", {}).get("metrics") or {}
+    nw = m.get("nested_walk_forward", {})
+    main_key = "promotion_quant_only" if "promotion_quant_only" in nw else next(iter(nw), None)
+    wf = (nw.get(main_key) or {}).get("metrics") or {}
     for bname in ("EW_universe", "QQQ", "SPY"):
         b = wf.get(f"bench_{bname}")
         if b:
@@ -68,10 +70,14 @@ def render(con: duckdb.DuckDBPyConnection, run_id: str | None = None) -> str:
                 lines.append(f"- {n.get('label', key)} vs {bname}: excess CAGR {_pct(b.get('excess_cagr'))}, beta "
                              f"{_num(b.get('beta'))}, alpha {_pct(b.get('alpha_annual'))}, information ratio "
                              f"{_num(b.get('information_ratio'))}, tracking error {_pct(b.get('tracking_error'))}")
-    picks = m.get("nested_walk_forward", {}).get("quant_only", {}).get("picks", [])
+    picks = (nw.get(main_key) or {}).get("picks", [])
     if picks:
-        lines += ["", "Configurations selected per fold (quant only): " + ", ".join(
-            f"{p['test_start']}: {p['preset']}" for p in picks)]
+        lines += ["", f"Model held per test fold ({(nw.get(main_key) or {}).get('label', main_key)}):", "",
+                  "| Test start | Preset | N | Min market cap | Decision |", "|---|---|---|---|---|"]
+        for p in picks:
+            cap = p.get("min_market_cap")
+            lines.append(f"| {p['test_start']} | {p['preset']} | {p.get('portfolio_size', '—')} | "
+                         f"{'—' if cap is None else f'${cap / 1e6:,.0f}M'} | {p.get('reason', '')} |")
 
     # --- overfitting ------------------------------------------------------------------------------------------
     v = m.get("validation", {})

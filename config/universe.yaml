@@ -11,7 +11,7 @@ exclude_name_patterns:
   - "(?i)\bdepositary\b"
   - "(?i)\bnotes? due\b"
   - "(?i)\bacquisition corp"
-exclude_symbol_suffixes: ["W", "WS", "U", "R"]   # applied only to symbols of length 5 (NASDAQ suffix convention)
+exclude_symbol_suffixes: ["W", "R", "U", "P", "Z", "Q", "F", "Y"]   # NASDAQ 5th letter: warrants, rights, units, preferred, misc, bankruptcy, foreign, ADR
 
 groups:
   technology:
