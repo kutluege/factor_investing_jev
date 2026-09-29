@@ -154,3 +154,10 @@ def test_backtest_reproduces_exactly(e2e):
     run_id = ctx.con.execute("SELECT run_id FROM backtest_runs ORDER BY created_at LIMIT 1").fetchone()[0]
     rep = reproduce_run(ctx, run_id)
     assert rep["reproduced"], rep
+
+
+def test_results_report_renders(e2e):
+    from src.pipeline.report import render
+    text = render(open_context().con)
+    assert "Honest out-of-sample performance" in text and "Probability of backtest overfitting" in text
+    assert "EW_universe" in text  # equal-weight universe benchmark is reported

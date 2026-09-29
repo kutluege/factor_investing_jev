@@ -1,10 +1,18 @@
 # jev-factor-investor
 
 A local research and decision-support application for **medium-term (3–6 month), long-only investing in NASDAQ
-common stocks** in Technology, Biotechnology, Energy and Metals & Mining. It combines point-in-time fundamental
-factors (SEC XBRL), price momentum, technical indicators and risk measures with **TypeSafe AI Jev**, a probabilistic
-decision model accessed through **Vercel AI Gateway**. It produces monthly **BUY / HOLD / WAIT / SELL** signals for a
-USD 10,000 paper portfolio (fractional shares) and a fully persisted, reproducible walk-forward research record.
+common stocks** in Technology, Biotechnology, Energy and Metals & Mining. Every month it produces a **factor-based
+ranking** (the shortlist you then check with your own technical analysis) and **BUY / HOLD / WAIT / SELL** signals for
+a USD 10,000 paper portfolio (fractional shares), backed by a fully persisted, reproducible walk-forward research
+record.
+
+The model (v2) combines literature-grounded, point-in-time characteristics — residual and 12-1 momentum, 52-week-high
+proximity, cash-based and gross profitability, F-score, asset growth, net share issuance, value, ΔROE / earnings
+surprise and low-risk (MAX, idiosyncratic volatility) — see [`docs/RESEARCH.md`](docs/RESEARCH.md) for definitions
+and sources and [`docs/RESULTS.md`](docs/RESULTS.md) for the latest backtest. **Technical-analysis indicators are
+deliberately not part of the model** (they are computed and shown in the dashboard for your own analysis).
+**TypeSafe AI Jev** (via Vercel AI Gateway) runs in *shadow mode*: its judgements are recorded every month and it only
+receives weight after a validated forward track record.
 
 > Decision support only. No orders are sent anywhere. The portfolio layer exposes a `BrokerAdapter` protocol so a
 > broker integration can be added later without touching strategy code.
@@ -65,7 +73,7 @@ The dashboard button and `python -m src.pipeline.monthly` call the **same functi
 
 | Variable | Purpose |
 |---|---|
-| `FMP_API_KEY` | Financial Modeling Prep key (free plan works within its limits) — https://site.financialmodelingprep.com/developer |
+| `FMP_API_KEY` | Financial Modeling Prep key — **Starter plan or higher** (the free plan limits prices to ~87 symbols and has no screener) |
 | `AI_GATEWAY_API_KEY` | Vercel AI Gateway key (Vercel dashboard → AI Gateway → API Keys). A credit card must be on file for the gateway to serve requests. |
 | `SEC_USER_AGENT` | `"app-name your@email"` — SEC requires a descriptive User-Agent with a contact email |
 | `INITIAL_CAPITAL_USD` | default 10000 |
@@ -84,19 +92,19 @@ is 10/s), and responses are cached on disk (`data/raw_cache`). The app uses `com
 (NASDAQ tickers + CIK), `submissions/CIK##########.json` (SIC code) and `api/xbrl/companyfacts/CIK##########.json`
 (all XBRL facts, each with its `filed` date).
 
-### FMP free plan
-The free plan allows **250 calls/day** and **500 MB bandwidth over a rolling 30 days**. The client enforces a local
-daily budget (`config/data.yaml → fmp.daily_call_budget`, default 240), caches immutable payloads forever, loads
-prices incrementally, and stops cleanly (resumable) when the budget or bandwidth is exhausted
-(`Bandwidth Limit Reach` → recorded, retried on a later run). A full universe therefore takes several days of
-bootstrap runs on the free plan; progress is kept in `data_load_status`.
+### FMP plan (Starter, verified 2026-09-29)
+Starter serves US prices (split- and dividend-adjusted) back to ~2006 (5,000 rows per request), the screener,
+profiles and splits, at 300 calls/min and 20 GB per rolling 30 days. The client stays below the rate limit
+(`config/data.yaml → fmp.min_interval_seconds`), fetches with a few threads, caches immutable payloads forever and loads
+prices incrementally. Only page 0 of `delisted-companies` is available on Starter, so delisted companies are recovered
+another way (see *Survivorship*). For the free plan set `fmp.daily_call_budget: 240`.
 
 ---
 
 ## Running
 
 ```powershell
-# first-time historical initialization + research (resumable; rerun daily until data is complete)
+# first-time historical initialization + research (resumable)
 uv run python -m src.pipeline.bootstrap
 uv run python -m src.pipeline.bootstrap --max-symbols 60         # reduced universe
 uv run python -m src.pipeline.bootstrap --skip-data              # research on stored data only
@@ -109,6 +117,8 @@ uv run python -m src.pipeline.monthly
 uv run streamlit run app/streamlit_app.py
 
 # utilities
+uv run python -m src.pipeline.tools load-data                    # refresh reference data, prices, SEC facts, features
+uv run python -m src.pipeline.tools report                       # write docs/RESULTS.md for the latest research run
 uv run python -m src.pipeline.tools status
 uv run python -m src.pipeline.tools backtest --max-configs 50     # research on stored data, no API calls
 uv run python -m src.pipeline.tools jev-history --max-new 500     # Stage A only, resumable
@@ -127,26 +137,29 @@ sessions of history, traded within the last 5 sessions) → market cap ≥ thres
 **ADV20 = mean(close × volume over the previous 20 sessions)** ≥ threshold (1M/5M/10M/20M tested).
 Market cap = split-adjusted close × SEC-reported shares converted to adjusted units with post-dated splits.
 
-### Factors
-Families: **Value, Quality, Growth, Fundamental Momentum, Price Momentum, Technical Trend, Risk**
-(`config/factors.yaml`). Invalid ratios (non-positive denominators) are NaN, never forced. **Biotechnology** uses
-cash/market cap, cash runway, leverage, R&D intensity, dilution, revenue growth, momentum and risk — P/E-style,
-margin and ROIC features are excluded for the group. Each date is normalized independently: winsorized robust
-z-scores (median/MAD), sector-relative when a group has ≥ 8 names, percentile ranks. Missing families are handled
-explicitly (weight redistributed; a name needs ≥ 50% of the weight present).
+### Factors (v2)
+Themes: **Momentum, Quality, Investment, Value, Fundamental Momentum, Low Risk** (plus Growth, weight 0 in the core
+presets) — `config/factors.yaml`, definitions and sources in `docs/RESEARCH.md`. Invalid ratios (non-positive
+denominators) are NaN, never forced. **Biotechnology** uses cash/market cap, cash runway, R&D/market cap, issuance,
+asset growth, gross profitability, momentum and low risk — earnings-based ratios and F-score are excluded for the group.
+Each date is normalized independently with rank → normal scores; accounting ratios are ranked within sector group,
+price signals across the universe. Missing themes are handled explicitly (weight redistributed; a name needs ≥ 50% of
+the weight present).
 
 ### Horizon
-Research labels are **63- and 126-session** forward returns. The monthly review is only the decision frequency;
+Research labels are **21-, 63- and 126-session** forward returns. The monthly review is only the decision frequency;
 positions are held while they satisfy the hold rules (hysteresis), not liquidated monthly.
 
 ### Model search (restricted, interpretable)
-Stage 1: family-weight presets × Jev weights {0,5,…,30%} at default parameters. Stage 2: a **seeded random sample**
-of the full grid (market cap, ADV, size {5,10,15,20,30}, weighting {equal, score, inverse-vol, score×inverse-vol},
-hold buffer {1.0,1.2,1.5,2.0}, Jev weight) that does not depend on results. Every configuration is persisted in
+Stage 1: theme-weight presets (literature, equal themes, momentum-quality, quality-value, defensive, momentum-only,
+factor-momentum tilt, IC weights shrunk toward the literature weights) × Jev weights {0,5,…,30%} at default
+parameters. Stage 2: a **seeded random sample** of the full grid (market cap, ADV, size {5,10,15,20,25,30}, weighting
+{equal, score, inverse-vol, score×inverse-vol}, hold buffer {1,1.5,2,3,4}, Jev weight) that does not depend on results. Every configuration is persisted in
 `factor_models`. One-at-a-time sensitivity around the best configuration (including cost multipliers 0–3×).
 
 ### Walk-forward evaluation
-Expanding window: ≥ 18 training months, 6-month test blocks, 1-month embargo; training labels whose 126-session
+Backtests start 2011-06-30 (SEC XBRL coverage). Expanding window: ≥ 36 training months, 12-month test blocks,
+1-month embargo; training labels whose 126-session
 window ends after the test start are purged. Fold definitions are stored with each run. Two kinds of results are
 reported and labelled:
 * **per-configuration fold metrics** (median CAGR, 3m/6m returns, Sharpe, Sortino, Calmar, median / worst-fold
@@ -160,17 +173,20 @@ quality, 10% worst-fold-drawdown quality, minus a turnover penalty; each compone
 candidates. Stability reports factor-family inclusion and parameter frequencies among the top configurations.
 
 ### Transaction costs (explicit defaults, shown in every report)
-Commission $1.00 per trade, slippage 10 bps (adverse), transaction cost 5 bps of notional, delisting haircut 0%.
-Signals use the close of day D; backtest trades execute at the **next session's open**.
+Commission $1.00 per trade, slippage 10 bps (adverse) **plus half the estimated bid-ask spread** (Abdi–Ranaldo
+estimator from daily OHLC, capped at 200 bps), transaction cost 5 bps of notional, delisting haircut 0%. Signals use
+the close of day D; backtest trades execute at the **next session's open**. Position cap max(8%, 1.5/N), sector-group
+cap 45%, minimum rebalancing trade $150. Overfitting controls: equal-weight universe benchmark, probability of
+backtest overfitting (CSCV) and deflated Sharpe ratio are reported for every run.
 
 ### BUY / HOLD / WAIT / SELL
 * **BUY** — not owned, ranks within the top *N* among names passing entry gates (volatility gate etc.), and a slot
   is free (or it ranks in the top *N × 0.5* and replaces a holding that fell outside the top *N*).
 * **HOLD** — owned, rank ≤ *N × hold_buffer*, no exit condition.
 * **WAIT** — not owned, rank ≤ *2N* but entry criteria not met (near cutoff, gate failure, portfolio full).
-* **SELL** — owned and: rank > *N × hold_buffer*, technical breakdown (price > 10% below SMA200 with SMA50 < SMA200),
-  fundamental deterioration (quality and fundamental-momentum percentiles < 10%), no longer eligible
-  (delisted / illiquid / below market cap), or replaced by a stronger candidate.
+* **SELL** — owned and: rank > *N × hold_buffer*, fundamental deterioration (quality and fundamental-momentum
+  percentiles < 10%), no longer eligible (delisted / illiquid / below market cap / price < $3), or replaced by a
+  stronger candidate. (A technical-breakdown exit exists but is disabled: technical analysis is left to you.)
 Jev only influences the final score; hard gates and exit rules are applied afterwards and cannot be overridden.
 
 ### Jev integration (Vercel AI Gateway)
@@ -192,6 +208,10 @@ information into backtests.
   Vercel does not expose the underlying Jev release; it is recorded as *unknown* and every run records its
   `jev_feature_set_id`. Editing question text creates a new question-schema version; bump
   `feature_set_tag` for a deliberate full refresh (old decisions are kept).
+* **Shadow mode / forward validation:** historical Jev backtests are look-ahead contaminated (LLMs can recall what
+  happened after a historical date even from anonymized inputs), so they are reported only as an upper bound. In
+  production Jev scores are stored every month and Jev receives weight only after ≥ 12 matured forward months show a
+  significant rank IC beyond the quant score (`config/jev.yaml → production_policy`, `src/jev/forward.py`).
 * Holdings additionally get a production-only *holding review* (thesis intact, exit urgency) that is shown in
   explanations but not scored, because it cannot be generated consistently for historical backtests.
 
@@ -218,17 +238,18 @@ the state. No narrative is invented.
   `availability_date <= rebalance_date` and flags any violation as critical.
 
 ## Survivorship bias — limitations (read this)
-* Delisted NASDAQ companies are included when FMP's `delisted-companies` endpoint (and `profile` for their sector)
-  is accessible under the plan. If it is not, historical universes contain only companies that still exist, and the
-  diagnostics state **"NOT survivorship-bias free"**. Even with the endpoint, coverage of historical delistings and
-  ticker changes is incomplete, so no run is claimed to be fully survivorship-safe.
+* Delisted NASDAQ companies are recovered from FMP's full symbol list minus actively traded symbols; each candidate is
+  profiled (exchange, sector, CIK, IPO date) and priced from FMP's history, which retains delisted symbols. A stock
+  is treated as delisted after its last trading day. Residual gaps remain — tickers later reused by another company
+  and companies FMP no longer lists — so no run is claimed to be fully survivorship-safe.
 * Delisted securities without a CIK mapping have no SEC fundamentals (they are still scored on price families).
 * Sector classification is today's snapshot (FMP / SIC), not point-in-time.
 * The free SEC and FMP data do not provide historical index membership; eligibility is reconstructed from listing
   dates, prices, market cap and liquidity.
 
 ## Other limitations
-* ~5 years of price history gives few walk-forward folds; treat results as indicative, not statistically robust.
+* ~15 years of point-in-time fundamentals (2011–2026) give about a dozen walk-forward folds: enough for honest
+  out-of-sample estimates, still too short to prove skill statistically (see the deflated Sharpe in RESULTS.md).
 * Dividend-adjusted prices are used when FMP provides them; otherwise returns are price-only (flagged in the report).
 * Stock splits come from FMP's `splits` endpoint. When it is unavailable they are inferred from clean-ratio jumps in
   SEC as-reported share counts (`stock_splits.source = 'inferred_sec'`); vendor data replaces inferred rows later.

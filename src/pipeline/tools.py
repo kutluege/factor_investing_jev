@@ -89,6 +89,15 @@ def load_data(db: str = typer.Option(None), force_reference: bool = typer.Option
 
 
 @app.command()
+def report(run_id: str = typer.Argument(None), db: str = typer.Option(None)) -> None:
+    """Write docs/RESULTS.md for a stored research run (latest by default)."""
+    from src.pipeline.report import write
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    console.print(f"wrote {write(ctx.con, run_id)}")
+
+
+@app.command()
 def reproduce(run_id: str, db: str = typer.Option(None)) -> None:
     setup_logging()
     ctx = open_context(db, progress_printer)

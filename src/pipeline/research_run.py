@@ -53,7 +53,9 @@ def generate_historical_jev(ctx: Context, dates: list[pd.Timestamp] | None = Non
     client = JevClient()
     fsid = ensure_feature_set(ctx.con, client.model, qset)
     tasks = []
-    for d in cache.dates:
+    start = load_config("backtest").get("start_date")
+    research_dates = [d for d in cache.dates if start is None or d >= pd.Timestamp(start)]
+    for d in research_dates:
         syms = candidate_symbols(cache, d, definition=definition)
         persist_candidate_set(ctx.con, d, fsid, syms, definition)
         tasks.extend(build_tasks(cache, md.bench.get("QQQ"), d, syms, industries))
