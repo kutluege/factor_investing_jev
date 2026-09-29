@@ -1,0 +1,60 @@
+# Investable universe definition. Classification prefers FMP sector/industry and falls back to SEC SIC codes.
+exchange: NASDAQ
+exclude_etfs: true
+exclude_funds: true
+# Security-name patterns that indicate non-common-equity instruments (warrants, units, rights, preferreds).
+exclude_name_patterns:
+  - "(?i)\bwarrants?\b"
+  - "(?i)\bunits?\b"
+  - "(?i)\brights?\b"
+  - "(?i)\bpreferred\b"
+  - "(?i)\bdepositary\b"
+  - "(?i)\bnotes? due\b"
+  - "(?i)\bacquisition corp"
+exclude_symbol_suffixes: ["W", "WS", "U", "R"]   # applied only to symbols of length 5 (NASDAQ suffix convention)
+
+groups:
+  technology:
+    fmp_sectors: ["Technology"]
+    fmp_industries: []
+    sic_ranges: [[3570, 3579], [3600, 3629], [3640, 3699], [3810, 3829], [3559, 3559], [7370, 7379], [4899, 4899]]
+  biotechnology:
+    fmp_sectors: []
+    fmp_industries:
+      - "Biotechnology"
+      - "Drug Manufacturers - General"
+      - "Drug Manufacturers - Specialty & Generic"
+      - "Medical - Pharmaceuticals"
+      - "Medical - Diagnostics & Research"
+      - "Medical - Healthcare Information Services"
+    sic_ranges: [[2833, 2836], [8731, 8731]]
+  energy:
+    fmp_sectors: ["Energy"]
+    fmp_industries: ["Solar"]
+    sic_ranges: [[1220, 1241], [1311, 1389], [2910, 2999], [4610, 4619], [4920, 4925], [5170, 5172]]
+  metals_mining:
+    fmp_sectors: []
+    fmp_industries:
+      - "Gold"
+      - "Silver"
+      - "Copper"
+      - "Other Precious Metals"
+      - "Other Precious Metals & Mining"
+      - "Industrial Materials"
+      - "Steel"
+      - "Aluminum"
+      - "Uranium"
+    sic_ranges: [[1000, 1099], [1400, 1499], [3310, 3399]]
+
+# Minimum price history before a security can enter a rebalance universe (trading days).
+min_history_days: 252
+# Minimum share price at rebalance (avoids sub-dollar pathologies; applied on raw close).
+min_price: 1.0
+
+benchmarks:
+  broad: ["QQQ", "SPY"]
+  sector:
+    technology: "XLK"
+    biotechnology: "XBI"
+    energy: "XLE"
+    metals_mining: "XME"

@@ -1,0 +1,86 @@
+# Jev (typesafe-ai/jev) via Vercel AI Gateway. Question schemas were verified against the live /v1/evaluate API:
+#   boolean -> {"type","instructions"}                      answer: {"probability"}
+#   choice  -> {"type","instructions","criteria": {label: description}}   answer: {"choice","probabilities","confidence"}
+#   score   -> {"type","instructions","criteria": [ordered level descriptions]}  answer: {"score","probabilities","confidence"}
+provider: vercel-ai-gateway
+base_url: https://ai-gateway.vercel.sh/v1
+endpoint: /evaluate
+timeout_seconds: 60
+max_retries: 5
+state_schema_version: "candidate-v1"
+holding_state_schema_version: "holding-v1"
+question_schema_version: "q-v1"
+# Bump to start a deliberately separate Jev feature set (e.g. a full refresh); old decisions are kept.
+feature_set_tag: "v1"
+holding_question_schema_version: "hq-v1"
+
+# Identifiers (ticker, company, calendar dates) are withheld from states on purpose: Jev may have been trained
+# on data after a historical rebalance date, so identifiers would leak already-known future outcomes.
+include_identifiers: false
+
+candidate_pool:
+  top_n: 50            # top quant names per family preset evaluated by Jev
+  boundary_extra: 10   # extra names just below the pool cut-off
+  include_holdings: true
+
+# Weights combining question outputs into jev_raw (before cross-sectional normalization).
+# Negative weight = the probability counts against the stock.
+score_components:
+  momentum_persistence: 0.25
+  fundamental_deterioration: -0.20
+  value_trap: -0.10
+  relative_outperformance: 0.30
+  regime_fit: 0.15
+
+questions:
+  momentum_persistence:
+    type: boolean
+    instructions: >-
+      Given this point-in-time stock state, is the stock's current relative price momentum likely to persist
+      over the next 3 to 6 months? Judge only from the stated factor percentiles, trend and regime data.
+  fundamental_deterioration:
+    type: boolean
+    instructions: >-
+      Is there evidence in the stated fundamentals (growth, margins, returns on capital, leverage, cash flow
+      trends) that material fundamental deterioration is underway?
+  value_trap:
+    type: boolean
+    instructions: >-
+      If the stock screens as cheap, does the stated combination of weakening fundamentals and price trend
+      suggest the cheapness reflects a value trap rather than genuine undervaluation? Answer false if the
+      stock does not screen as cheap.
+  relative_outperformance:
+    type: boolean
+    instructions: >-
+      Over the next 3 to 6 months, is this stock more likely than not to outperform the equal-weighted
+      universe of NASDAQ stocks in the same sector group, given the stated state?
+  regime_fit:
+    type: score
+    instructions: >-
+      Rate how supportive the stated market and sector regime is for this stock's factor profile over a
+      3 to 6 month holding horizon.
+    criteria:
+      - "Hostile: market and sector trends and volatility work directly against this factor profile"
+      - "Unfavourable: the regime is more negative than positive for this profile"
+      - "Neutral: the regime is mixed or has little bearing on this profile"
+      - "Favourable: the regime is more positive than negative for this profile"
+      - "Very supportive: market and sector trends clearly reward this factor profile"
+
+# Asked only for current holdings in production (state includes portfolio fields). Shown in explanations;
+# not used in the score because it cannot be generated consistently for historical backtests.
+holding_questions:
+  thesis_intact:
+    type: boolean
+    instructions: >-
+      For this existing position, is the original investment thesis (strong factor ranking with supportive
+      momentum and fundamentals at entry) still intact given the change in ranks and factors since entry?
+  exit_urgency:
+    type: score
+    instructions: >-
+      Rate how urgently this existing position should be reconsidered for exit over the coming month.
+    criteria:
+      - "None: ranks, fundamentals and trend remain strong"
+      - "Low: minor weakening in one area"
+      - "Moderate: meaningful weakening in rank or one factor family"
+      - "High: several factor families and the trend have weakened"
+      - "Severe: broad deterioration in rank, fundamentals and trend"

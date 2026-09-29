@@ -1,0 +1,28 @@
+# Data-source settings. Credentials come from .env, never from this file.
+database_path: data/jev_factor.duckdb
+raw_cache_dir: data/raw_cache
+
+fmp:
+  base_url: https://financialmodelingprep.com/stable
+  daily_call_budget: 240         # free plan allows 250/day; keep headroom
+  min_interval_seconds: 0.25     # spacing between live calls
+  max_retries: 4
+  history_years: 5               # daily price history requested on first load
+  max_delisted_profiles_per_run: 150  # profile calls used to classify delisted companies
+  # Cache time-to-live per endpoint family (hours). Immutable history is cached forever once past.
+  ttl_hours:
+    reference: 168               # profiles, lists, screener
+    prices_recent: 20            # price payloads that include the last few sessions
+    delisted: 168
+
+sec:
+  base_url: https://data.sec.gov
+  www_url: https://www.sec.gov
+  max_requests_per_second: 8     # SEC fair-access limit is 10/s
+  max_retries: 4
+  ttl_hours:
+    companyfacts: 20
+    submissions: 20
+    tickers: 20
+  # Filings are assumed usable the session AFTER the filing date (filings often land after the close).
+  availability_lag_days: 1

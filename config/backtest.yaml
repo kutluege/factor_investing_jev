@@ -1,0 +1,91 @@
+# Research search space and backtest assumptions. Everything here is visible in reports and saved per run.
+initial_capital_usd: 10000
+start_date: null                # null = earliest date allowing full feature warm-up
+end_date: null                  # null = latest stored price date
+rebalance_frequency: monthly    # last trading day of each month
+execution: next_open            # signals computed on close of D, traded at the next session open
+
+costs:
+  commission_per_trade_usd: 1.0 # conservative even for commission-free brokers (covers fees / worse fills)
+  slippage_bps: 10              # applied adversely to the execution price
+  transaction_cost_bps: 5       # spread / market-impact allowance on traded notional
+  delisting_haircut: 0.0        # additional loss applied to the last price when a held stock stops trading
+
+portfolio:
+  max_position_weight: 0.25
+  drift_band: 0.25              # re-trade a kept position only if |current-target|/target exceeds this
+  wait_rank_multiple: 2.0       # non-owned names ranked <= N * this (but not BUY) are shown as WAIT
+  replace_rank_fraction: 0.5    # a non-owned name ranked <= N * this may replace a holding outside the top N
+  min_holding_days_for_rank_exit: 0
+  entry_gates:
+    max_vol60_percentile: 0.95  # do not BUY the most volatile 5% of the universe
+    require_above_sma200: false # optional technical confirmation gate
+    min_jev_confidence: null    # optional; null disables
+  exit_rules:
+    technical_breakdown: true   # price < SMA200 by more than breakdown_pct AND SMA50 < SMA200
+    breakdown_pct: 0.10
+    fundamental_deterioration_pct: 0.10   # fundamental-momentum AND quality percentiles both below this
+
+search:
+  seed: 42
+  # Stage 1: interpretable family-weight presets x Jev weights at the default parameters below.
+  defaults:
+    min_market_cap: 300000000
+    min_adv20: 5000000
+    portfolio_size: 15
+    weighting: equal
+    hold_buffer: 1.5
+  market_caps: [100000000, 300000000, 500000000, 1000000000]
+  adv_thresholds: [1000000, 5000000, 10000000, 20000000]
+  portfolio_sizes: [5, 10, 15, 20, 30]
+  weightings: [equal, score, inverse_vol, score_inverse_vol]
+  jev_weights: [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
+  hold_buffers: [1.0, 1.2, 1.5, 2.0]
+  cost_multipliers: [0.0, 1.0, 2.0, 3.0]   # sensitivity only; never used for selection
+  # Stage 2: seeded random sample of the full grid. It does not depend on any results, so nested walk-forward
+  # selection over Stage 1 + Stage 2 candidates is not contaminated by full-sample performance.
+  random_configs: 150
+
+family_presets:
+  balanced:          {value: 1, quality: 1, growth: 1, fundamental_momentum: 1, price_momentum: 1, technical_trend: 1, risk: 1}
+  momentum_trend:    {value: 0, quality: 1, growth: 1, fundamental_momentum: 1, price_momentum: 3, technical_trend: 2, risk: 1}
+  quality_value:     {value: 3, quality: 3, growth: 1, fundamental_momentum: 1, price_momentum: 1, technical_trend: 0, risk: 1}
+  growth_momentum:   {value: 0, quality: 1, growth: 3, fundamental_momentum: 2, price_momentum: 2, technical_trend: 1, risk: 0}
+  quality_momentum:  {value: 1, quality: 2, growth: 1, fundamental_momentum: 1, price_momentum: 2, technical_trend: 1, risk: 1}
+  defensive:         {value: 1, quality: 3, growth: 0, fundamental_momentum: 1, price_momentum: 1, technical_trend: 1, risk: 3}
+  # Family weights re-estimated at every rebalance from rank ICs whose 126-day labels had fully matured.
+  ic_weighted_126:   {dynamic: ic, horizon: 126, lookback_months: 24, min_obs: 6}
+
+walk_forward:
+  min_train_months: 18
+  test_months: 6
+  embargo_months: 1             # gap between the last training rebalance and the first test rebalance
+  purge_label_days: 126         # training labels that end after the test start are dropped
+
+objective:
+  weights:
+    median_cagr: 0.35
+    medium_horizon_return: 0.15   # mean of median 3m and median 6m rolling returns
+    median_calmar: 0.15
+    median_sharpe: 0.10
+    median_drawdown_quality: 0.15
+    worst_drawdown_quality: 0.10
+  turnover_penalty: 0.05          # per unit of robust-z annual turnover
+  min_folds_for_selection: 2
+
+promotion:
+  min_objective_improvement: 0.25   # challenger must beat incumbent by this many robust-z objective units
+  min_fold_win_rate: 0.6            # and beat the incumbent in at least this share of OOS folds
+  max_worst_dd_deterioration: 0.05  # and not worsen worst-fold drawdown by more than 5 percentage points
+  min_months_between_promotions: 3
+
+diagnostics:
+  max_missing_fundamental_share: 0.5
+  min_universe_size: 30
+  max_single_stock_contribution: 0.5
+  max_single_sector_weight: 0.8
+  max_annual_turnover: 6.0
+  microcap_threshold: 300000000
+  max_microcap_weight: 0.5
+  min_months: 24
+  min_folds: 3
