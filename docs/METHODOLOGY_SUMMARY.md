@@ -6,8 +6,8 @@ validation protocol, what was tested and the results obtained. Written to suppor
 state-of-the-art (SOTA) practice. Companion documents: `docs/RESEARCH.md` (literature basis), `docs/RESULTS.md`
 (stored research run), `docs/EXPLORATION.md` (maximum-return track), `docs/FACTOR_IC.md` (characteristic research).
 
-Status at time of writing (2026-09-30): quant results complete; historical Jev generation (29,655 states) was running
-and the Quant vs Quant + Jev comparison was pending.
+Status (2026-09-30): quant and Jev results complete. Jev results are in §7.1; the second research run (250
+configurations, run `bt_20260930_151358_aceb0b`) is summarized in §9.4.
 
 ---
 
@@ -219,6 +219,29 @@ Invalid ratios (non-positive denominators) are NaN, never forced; growth is only
 
 ---
 
+### 7.1 Jev results (historical; upper bound because of possible LLM look-ahead)
+
+Historical generation: 29,655 unique anonymized states (candidate pools at 183 month-ends, 2011-06 → 2026-08), 0
+failures, median latency 0.32 s, 30.0M input tokens, total cost **$1.26**. Feature set `jfs_ab5d5f8fc4f9`.
+
+**Signal test** (Spearman rank IC inside the Jev candidate pools, ~161 names/month; t-stats adjusted for overlapping
+labels by √(h/21)):
+
+| Horizon | Jev rank IC | Quant rank IC | Jev residual IC (beyond quant) | Corr(Jev, quant) | Top-quintile Jev excess |
+|---|---|---|---|---|---|
+| 21d | +0.015 (t≈1.4) | +0.020 (t≈2.0) | +0.006 (t≈0.6) | 0.39 | −1.4% |
+| 63d | +0.031 (t≈2.0) | +0.036 (t≈2.1) | +0.017 (t≈1.2) | 0.39 | −2.8% |
+| 126d | +0.045 (t≈2.2) | +0.059 (t≈2.4) | +0.026 (t≈1.4) | 0.39 | −2.2% |
+
+**Portfolio test** (honest nested walk-forward, 2014-07 → 2026-09): incumbent/challenger with Jev weight selectable
+7.4% CAGR, Sharpe 0.47, max DD −29.9% vs 8.6% / 0.55 / −23.9% quant-only; free selection with Jev 4.0% vs 17.3%
+quant-only. The best-on-all-folds comparison (Jev weight 10%: median fold CAGR 13.3%, Sharpe 0.93 vs 11.5% / 0.75)
+favours Jev, but that comparison is in-sample over 6× more Jev configurations and is exposed to LLM look-ahead.
+
+**Conclusion:** Jev's judgements add no statistically reliable information beyond the factor score, and do not improve
+honest out-of-sample portfolios. Production keeps Jev in shadow mode (weight 0); its scores are recorded monthly so a
+clean forward track record accumulates (`src/jev/forward.py`, gate: ≥ 12 matured months, residual IC t ≥ 2).
+
 ## 8. Validation protocol
 
 1. **Walk-forward folds:** expanding window, ≥ 36 training months, 12-month test blocks, 1-month embargo, 126-day
@@ -288,6 +311,22 @@ The regime overlay hurt in every variant (whipsaws 2015–16, 2018, 2022). No ho
 50%/yr, and none beat QQQ out of sample.
 
 ---
+
+### 9.4 Second research run (quant + Jev, 250 configurations)
+
+| Strategy (out of sample 2014-07 → 2026-09) | CAGR | Vol | Sharpe | Max DD |
+|---|---|---|---|---|
+| Fixed prior (pre-specified) | 10.5% | 20.9% | 0.58 | −30.4% |
+| Incumbent/challenger, quant only | 8.6% | 18.2% | 0.55 | −23.9% |
+| Free per-fold selection, quant only | 17.3% | 30.2% | 0.68 | −53.7% |
+| Incumbent/challenger, Jev selectable | 7.4% | 19.1% | 0.47 | −29.9% |
+| Free per-fold selection, Jev selectable | 4.0% | 19.8% | 0.30 | −49.0% |
+| EW universe / QQQ / SPY | 13.6% / 19.3% / 13.9% | — | — | −47.2% / −35.1% / −33.7% |
+
+PBO (CSCV, 216 configurations): 62%. Free per-fold selection returned −6.8% in run 1 and +17.3% in run 2 — the only
+difference being the seeded random candidate draw (the Jev-weight list changed the random stream) — i.e. its outcome
+is noise. The incumbent/challenger process ended on `equal_themes`, 20 stocks, $300M+; it passed every promotion test
+except the 3-month cooldown, so the pre-specified model remains the production incumbent until the next review.
 
 ## 10. Key conclusions
 1. In this universe and period the factor model mainly **reduces risk** (beta ≈ 0.6–0.75; drawdown −30% vs −47%);

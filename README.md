@@ -24,8 +24,9 @@ receives weight after a validated forward track record.
 | Strategy | CAGR | Sharpe | Max drawdown |
 |---|---|---|---|
 | **Production model** (pre-specified literature themes, $300M+, 20 stocks, equal weight, hold buffer 3) | 10.5% | 0.58 | −30.4% |
-| Incumbent/challenger selection process | 6.0% | 0.40 | −37.3% |
-| Free per-fold parameter selection | −6.8% | −0.17 | −76.1% |
+| Incumbent/challenger selection process (quant only; two research runs) | 6.0% / 8.6% | 0.40 / 0.55 | −37.3% / −23.9% |
+| Free per-fold parameter selection (two runs, different random candidate sets) | −6.8% / 17.3% | −0.17 / 0.68 | −76.1% / −53.7% |
+| Incumbent/challenger with Jev weight selectable (upper bound) | 7.4% | 0.47 | −29.9% |
 | Best exploratory variant (large-cap momentum, 10 stocks; chosen with hindsight) | 15.1% | 0.67 | −35.4% |
 | Equal-weight universe (all eligible stocks) | 13.6% | 0.62 | −47.2% |
 | QQQ | 19.3% | 0.95 | −35.1% |
@@ -37,6 +38,13 @@ What the evidence says (details in [`docs/RESULTS.md`](docs/RESULTS.md), [`docs/
 * **Choosing parameters from backtests made results worse** (probability of backtest overfitting 56%), so production
   uses the pre-specified model and switches only through the conservative incumbent/challenger rules.
 * Concentrated momentum and a market-regime (200-day) overlay added drawdown, not return.
+* **Jev (29,655 historical evaluations, $1.26):** its scores carry a weak signal that mostly duplicates the factor
+  score (correlation 0.39); the part not explained by the quant score is not significant (126-day residual rank IC
+  +0.026, t≈1.4) and its top-rated names underperformed the candidate pool. Selecting a Jev weight did not improve the
+  honest walk-forward (7.4% vs 8.6% quant-only) — even though historical Jev results are an upper bound (LLM
+  look-ahead). Jev therefore stays in shadow mode (weight 0) until a forward record validates it.
+* Free parameter selection swings from −6.8% to +17.3% CAGR depending only on which random candidates were drawn —
+  the clearest evidence that backtest-picked settings are unreliable (PBO 56–62%).
 * No honest configuration came close to 50%/yr; results that do are almost always look-ahead, survivorship,
   cost-free or in-sample artefacts.
 
