@@ -246,3 +246,17 @@ def load_themes_config(path: Path | None = None, strict: bool = False,
         if missing:
             raise ThemesConfigError(f"fmp_industries not found in FMP: {missing}")
     return cfg
+
+
+def known_fmp_industries_from_dump(path: Path | None = None) -> set[str]:
+    """Industry names present in the T0 dump (research/themes/fmp_industries.csv)."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT
+    path = path or PROJECT_ROOT / "research" / "themes" / "fmp_industries.csv"
+    return set(pd.read_csv(path)["industry"].dropna())
+
+
+def load_strict() -> ThemesConfig:
+    """Research/backtest mode: no VERIFY markers and every industry verified against the T0 dump."""
+    return load_themes_config(strict=True, known_fmp_industries=known_fmp_industries_from_dump())

@@ -2,9 +2,10 @@
 # themes.yaml — Tema / sektör parametreleri (themes_v1)
 # Kod değiştirmeden buradan yönetilir. Detaylar: docs/THEMES_SPEC.md
 #
-# ÖNEMLİ: fmp_industries listeleri, FMP'deki gerçek sanayi isimleri dökülmeden
-# (Görev T0) KESİN değildir ve "# VERIFY" ile işaretlidir. Yükleyici, FMP'de
-# bulunmayan bir sanayi adı görürse HATA vermelidir (sessizce atlamamalı).
+# fmp_industries listeleri Görev T0'da (2026-09-30) FMP'deki gerçek sanayi isimleriyle
+# doğrulandı: 27/27 tam eşleşme (research/themes/fmp_industries_mapping.csv,
+# reports/themes/gate_decisions.md). Yükleyici, FMP'de bulunmayan bir sanayi adı
+# görürse HATA verir (sessizce atlamaz).
 #
 # Bu dosya bir araştırma koşusundan önce research/preregistration/ altına
 # kopyalanıp hash'lenir. Sonuç görüldükten sonra değiştirilmez; değişiklik =
@@ -102,28 +103,28 @@ themes:
     subthemes:
       industrial_automation:
         fmp_industries: ["Industrial - Machinery", "Electrical Equipment & Parts",
-                         "Industrial - Specialties"]                          # VERIFY
+                         "Industrial - Specialties"]
         sic: [3559, 3569, 3625, 3823, 3829]
         keywords: ["industrial robot", "robotic", "factory automation", "motion control",
                    "machine vision", "collaborative robot", "cobot",
                    "warehouse automation", "programmable logic controller"]
         min_hits: 5
       surgical_medical:
-        fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies"]  # VERIFY
+        fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies"]
         sic: [3841, 3842, 3845]
         keywords: ["surgical robot", "robotic surgery", "robotic-assisted",
                    "robotic assisted", "robotic system", "robotic platform"]
         min_hits: 3
       autonomous_drone:
         fmp_industries: ["Auto - Manufacturers", "Auto - Parts", "Aerospace & Defense",
-                         "Software - Application", "Software - Infrastructure"]  # VERIFY
+                         "Software - Application", "Software - Infrastructure"]
         sic: [3711, 3714, 3721, 3728, 3812, 7372]
         keywords: ["autonomous vehicle", "autonomous driving", "self-driving", "lidar",
                    "drone", "unmanned aerial", "unmanned aircraft", "robotaxi"]
         min_hits: 5
       components:
         fmp_industries: ["Semiconductors", "Hardware, Equipment & Parts",
-                         "Electrical Equipment & Parts"]                       # VERIFY
+                         "Electrical Equipment & Parts"]
         sic: [3621, 3674, 3679, 3825, 3829]
         keywords: ["robot"]        # "robotic", "robotics" da eşleşir
         min_hits: 8                # yüksek eşik: genel çip/sensör firmalarını ayıklar
@@ -136,7 +137,7 @@ themes:
     split: stage                   # clinical vs commercial ayrı faktör seti
     subthemes:
       biotech_all:
-        fmp_industries: ["Biotechnology", "Drug Manufacturers - Specialty & Generic"]  # VERIFY
+        fmp_industries: ["Biotechnology", "Drug Manufacturers - Specialty & Generic"]
         sic: [2834, 2835, 2836, 8731]
         keywords: []               # sanayi/SIC yeterli
         min_hits: 0
@@ -150,29 +151,29 @@ themes:
       oil_gas:
         fmp_industries: ["Oil & Gas Exploration & Production", "Oil & Gas Integrated",
                          "Oil & Gas Midstream", "Oil & Gas Equipment & Services",
-                         "Oil & Gas Refining & Marketing"]                    # VERIFY
+                         "Oil & Gas Refining & Marketing"]
         sic: [1311, 1381, 1382, 1389, 2911, 4922, 4923]
         keywords: []
         min_hits: 0
       power_utilities:
         fmp_industries: ["Regulated Electric", "Independent Power Producers",
-                         "Diversified Utilities"]                              # VERIFY
+                         "Diversified Utilities"]
         sic: [4911, 4931, 4991]
         keywords: []
         min_hits: 0
       nuclear_uranium:
-        fmp_industries: ["Uranium"]                                            # VERIFY
+        fmp_industries: ["Uranium"]
         sic: [1094, 4911]
         keywords: ["uranium", "nuclear fuel", "small modular reactor", "nuclear reactor"]
         min_hits: 3
       grid_equipment:
-        fmp_industries: ["Electrical Equipment & Parts"]                       # VERIFY
+        fmp_industries: ["Electrical Equipment & Parts"]
         sic: [3612, 3613, 3621]
         keywords: ["transmission", "switchgear", "transformer", "power grid",
                    "data center power", "electrical infrastructure"]
         min_hits: 5
       renewables:
-        fmp_industries: ["Solar", "Renewable Utilities"]                       # VERIFY
+        fmp_industries: ["Solar", "Renewable Utilities"]
         sic: [3674, 4911, 4991]
         keywords: ["solar", "photovoltaic", "wind turbine", "energy storage",
                    "battery storage", "hydrogen", "fuel cell", "geothermal"]

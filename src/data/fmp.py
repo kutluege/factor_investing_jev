@@ -104,6 +104,10 @@ class FmpClient(CachedHttpClient):
                          ttl_hours=ttl_hours if ttl_hours is not None else self.cfg["ttl_hours"]["reference"])
         return data[0] if isinstance(data, list) and data else None
 
+    def available_industries(self) -> list[str]:
+        rows = self._get("available-industries", ttl_hours=self.cfg["ttl_hours"]["reference"]) or []
+        return [r["industry"] for r in rows if r.get("industry")]
+
     def delisted_companies(self, page: int = 0, limit: int = 100) -> list[dict]:
         return self._get("delisted-companies", {"page": page, "limit": limit},
                          ttl_hours=self.cfg["ttl_hours"]["delisted"]) or []

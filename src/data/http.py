@@ -182,3 +182,36 @@ class CachedHttpClient:
 
     def payload_error(self, payload: Any) -> ApiError | None:
         return None
+
+    def get_text(self, url: str, endpoint: str | None = None) -> str:
+        """Uncached text download with the same rate limit, retries and request logging as get_json."""
+        endpoint = endpoint or url
+        attempt = 0
+        while True:
+            self.limiter.wait()
+            started = time.perf_counter()
+            try:
+                resp = self._client.get(url)
+            except httpx.TransportError as exc:
+                self._log(endpoint, None, False, (time.perf_counter() - started) * 1000, type(exc).__name__)
+                if attempt >= self.max_retries:
+                    raise ApiError(self.provider, None, f"transport error: {exc}", retryable=True) from exc
+                attempt += 1
+                time.sleep(min(60, 2 ** attempt))
+                continue
+            latency = (time.perf_counter() - started) * 1000
+            self.stats.live_calls += 1
+            if resp.status_code == 200:
+                self._log(endpoint, 200, False, latency, None)
+                raw = resp.content
+                try:  # many older EDGAR documents are Windows-1252 without a charset declaration
+                    return raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    return raw.decode("cp1252", errors="replace")
+            error = self.classify_error(resp)
+            self._log(endpoint, resp.status_code, False, latency, str(error)[:200])
+            if not error.retryable or attempt >= self.max_retries:
+                raise error
+            attempt += 1
+            retry_after = resp.headers.get("retry-after")
+            time.sleep(float(retry_after) if retry_after and retry_after.isdigit() else min(60, 2 ** attempt))
