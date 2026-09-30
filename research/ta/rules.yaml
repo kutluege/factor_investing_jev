@@ -1,0 +1,26 @@
+# Teknik analiz kuralları — rules_v1 (2026-09-30)
+#
+# KAPI 4 (ROADMAP Adım 8): Kullanıcı kararı "girdileri FMP/veriyle yanıtla" doğrultusunda bu dosya, THEMES_SPEC §9'daki
+# üç örnek kuralın DERS KİTABI (varsayılan) parametreleriyle doldurulmuştur. Parametreler OPTİMİZE EDİLMEMİŞTİR ve hiçbir
+# getiri sonucuna bakılarak seçilmemiştir. Kullanıcı kendi kurallarını yazmak isterse bu dosya yeni bir sürümle
+# (rules_v2 + tarih) değiştirilir; eski sürümün işlemleri günlükte rule_id ile ayrışır.
+#
+# TA listeyi değiştirmez; yalnızca aylık listedeki (BUY/HOLD) hisseler için zamanlama önerir. Otomatik işlem yok.
+version: rules_v1
+status: default_not_optimized
+rules:
+  golden_cross_50_200:
+    type: entry
+    description: "SMA50, SMA200'ü yukarı keser (son 10 seans içinde) ve kapanış SMA200 üzerinde."
+    params: {fast: 50, slow: 200, lookback_sessions: 10}
+    source: "Klasik hareketli ortalama kesişimi (Murphy, Technical Analysis of the Financial Markets, 1999)"
+  pullback_to_50d:
+    type: entry
+    description: "Yükselen trendde (kapanış > SMA200 ve SMA50 > SMA200) fiyat SMA50'nin %2 yakınına geri çekilir."
+    params: {trend: 200, anchor: 50, band_pct: 0.02}
+    source: "Trend içinde ortalamaya geri çekilme alımı (Murphy 1999; Elder 1993)"
+  trailing_stop_atr:
+    type: exit
+    description: "İz süren stop = girişten bu yana en yüksek kapanış − 3 × ATR(14); kapanış stopun altına inerse çık."
+    params: {atr_period: 14, multiple: 3.0}
+    source: "Chandelier exit (Le Beau & Lucas 1992); Wilder ATR (1978)"

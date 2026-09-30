@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 
 from src.pipeline.cli_support import console, print_json, progress_printer, setup_logging
@@ -406,6 +408,76 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
     sl_df.to_csv(out / f"shortlist_{last.date()}.csv", index=False)
     (out / f"shortlist_{last.date()}.md").write_text(shortlist_markdown(sl_df, last, cfg), encoding="utf-8")
     print_json("T6", {"criteria": c, "shortlist": str(out / f"shortlist_{last.date()}.md")})
+
+
+@app.command("t7-ta-table")
+def t7_ta_table(db: str = typer.Option(None), shortlist: str = typer.Option(None, help="shortlist CSV (default: latest)")
+                ) -> None:
+    """T7: indicator + rule-state table for the BUY/HOLD names of the latest shortlist (run every interval_days)."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT
+    from src.features.store import load_market_data
+    from src.themes.config import load_strict
+    from src.themes.ta import indicator_table, load_rules, round_trips
+    setup_logging()
+    cfg = load_strict()
+    rules = load_rules(PROJECT_ROOT / cfg.ta_layer.rules_file)
+    rep = PROJECT_ROOT / "reports" / "themes"
+    path = Path(shortlist) if shortlist else max(rep.glob("shortlist_*.csv"))
+    sl = pd.read_csv(path)
+    names = sl[sl["signal"].isin(["BUY", "HOLD"])]["symbol"].tolist()
+    jpath = PROJECT_ROOT / cfg.ta_layer.journal_file
+    entries = {}
+    if jpath.exists() and jpath.stat().st_size > 0:
+        _, lots = round_trips(pd.read_csv(jpath))
+        if not lots.empty:
+            entries = lots.groupby("symbol")["date"].min().to_dict()
+    ctx = open_context(db, progress_printer)
+    md_ = load_market_data(ctx.con, names)
+    at = md_.calendar[-1]
+    t = indicator_table(md_.mats["high"], md_.mats["low"], md_.mats["close"], names, at, rules, entries)
+    t = t.join(sl.set_index("symbol")[["theme", "signal", "score"]], how="left")
+    out = rep / "ta"
+    out.mkdir(parents=True, exist_ok=True)
+    t.to_csv(out / f"ta_{at.date()}.csv")
+    cols = ["theme", "signal", "close", "sma50", "sma200", "rsi14", "adx14", "bb_pctb", "golden_cross_50_200",
+            "pullback_to_50d", "trailing_stop_atr", "stop_hit"]
+    lines = [f"# TA tablosu — {at.date()} ({rules['version']}, {rules['status']})", "",
+             f"Kaynak liste: `{path.name}`. TA listeyi değiştirmez; yalnızca zamanlama önerir. Otomatik işlem yok.", "",
+             "| Sembol | " + " | ".join(cols) + " |", "|---|" + "---|" * len(cols)]
+    for sym, r in t.iterrows():
+        vals = []
+        for c in cols:
+            v = r[c]
+            vals.append(("✔" if v else "") if isinstance(v, bool) else (f"{v:.2f}" if isinstance(v, float) else str(v)))
+        lines.append(f"| {sym} | " + " | ".join(vals) + " |")
+    (out / f"ta_{at.date()}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print_json("T7 table", {"as_of": str(at.date()), "names": len(t), "file": str(out / f"ta_{at.date()}.md")})
+
+
+@app.command("t7-ta-eval")
+def t7_ta_eval(db: str = typer.Option(None), journal: str = typer.Option(None)) -> None:
+    """T7: evaluate the trade journal (base-rate hit rate, profit factor, profit/maxDD, month-start contribution)."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT, load_config
+    from src.features.store import load_market_data
+    from src.themes.config import load_strict
+    from src.themes.ta import evaluate_journal, evaluation_markdown, load_rules
+    setup_logging()
+    cfg = load_strict()
+    rules = load_rules(PROJECT_ROOT / cfg.ta_layer.rules_file)
+    j = pd.read_csv(Path(journal) if journal else PROJECT_ROOT / cfg.ta_layer.journal_file)
+    ctx = open_context(db, progress_printer)
+    md_ = load_market_data(ctx.con, sorted(j["symbol"].unique()) if len(j) else [])
+    ev = evaluate_journal(j, md_.mats["open"], md_.mats["close"], load_config("backtest")["costs"])
+    out = PROJECT_ROOT / "reports" / "themes" / "ta"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "ta_evaluation.md").write_text(evaluation_markdown(ev, rules["version"]), encoding="utf-8")
+    if len(ev.get("table", [])):
+        ev["table"].to_csv(out / "ta_evaluation_trades.csv", index=False)
+    print_json("T7 eval", {k: v for k, v in ev.items() if k != "table"})
 
 
 def membership_frame_full(con):
