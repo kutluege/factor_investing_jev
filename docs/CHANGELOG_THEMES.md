@@ -21,4 +21,6 @@ Bunlar ön kayıttan ÖNCE, hiçbir getiri sonucu görülmeden verilen veri/uygu
   `autonomous_drone.min_hits` 5 → 10; inceleme yalnızca işlem gören sembollerde. Revizyon sonrası %91,7.
   Sebep olan sonuç: sınıflandırma hataları (getiri değil). Ayrıntı: `reports/themes/gate_decisions.md`.
 
-Ön kayıt SHA256'sı `t5-preregister` sonrasında eklenecektir.
+## themes_v1 — ön kayıt (2026-09-30)
+
+`research/preregistration/themes_v1.yaml`, SHA256 `b3f5ab188a3002aaf058c356277042023f70a55057de60883657277098072c4b`. Bu tarihten sonra themes_v1 yapılandırması değiştirilmez; T5 araştırma ve T6 backtest bu dosyayla koşar.
