@@ -19,6 +19,37 @@ receives weight after a validated forward track record.
 
 ---
 
+## Theme layer (themes_v1: robotics, biotech, energy on NASDAQ + NYSE)
+
+Planning documents: [`CLAUDE.md`](CLAUDE.md) (project rules), [`docs/ROADMAP.md`](docs/ROADMAP.md),
+[`docs/THEMES_SPEC.md`](docs/THEMES_SPEC.md), config [`config/themes.yaml`](config/themes.yaml). Decisions taken
+without looking at returns are logged in [`reports/themes/gate_decisions.md`](reports/themes/gate_decisions.md) and
+[`docs/CHANGELOG_THEMES.md`](docs/CHANGELOG_THEMES.md). Reports are in Turkish under `reports/themes/`.
+
+Membership is point in time: a firm belongs to a subtheme from the session after its 10-K is accepted (EDGAR UTC
+stamp converted to US Eastern; after 16:00 ET one more session) until the next 10-K or 18 months, based on keyword
+hits in 10-K Item 1. The success measure is **selection contribution versus the theme's equal-weight index**, not a
+CAGR target. Jev has weight 0 here.
+
+```powershell
+uv run python -m src.pipeline.themes t0-inventory     # FMP industries + EDGAR SIC inventory (Gate 1)
+uv run python -m src.pipeline.themes t1-universe      # candidate pool, prices, splits, SEC fundamentals
+uv run python -m src.pipeline.themes t2-item1         # 10-K Item 1 text (cached; ~2 filings/s)
+uv run python -m src.pipeline.themes t3-membership    # PIT membership, review file, theme-date counts
+uv run python -m src.pipeline.themes t3r-review       # Gate 2: automated review vs FMP descriptions (>= 85%)
+uv run python -m src.pipeline.themes t4b-verify       # FMP vs 8-K Item 2.02 earnings dates (Gate 5)
+uv run python -m src.pipeline.themes t4b-events       # announcement events (8-K timing, FMP realized EPS)
+uv run python -m src.pipeline.themes t4-panel         # theme_feature_panel + coverage report
+uv run python -m src.pipeline.themes t5a-french       # Kenneth French FF3/FF5/MOM/RF
+uv run python -m src.pipeline.themes t5-preregister   # copy config + SHA256; COMMIT before the next step
+uv run python -m src.pipeline.themes t5-research      # §7 factor research -> reports/themes/<run_id>/factor_explain.md
+uv run python -m src.pipeline.themes t6-backtest      # fixed-config theme backtest, §8 success table, shortlist
+uv run python -m src.pipeline.themes t7-ta-table      # TA indicator table for BUY/HOLD names (every 2-3 days)
+uv run python -m src.pipeline.themes t7-ta-eval       # trade-journal evaluation (research/ta/trade_journal.csv)
+```
+
+---
+
 ## Results at a glance (out of sample, 2014-07 → 2026-09, after costs)
 
 | Strategy | CAGR | Sharpe | Max drawdown |
