@@ -20,7 +20,8 @@ def sessions(con) -> pd.DatetimeIndex:
     return pd.DatetimeIndex(pd.to_datetime(d["date"]))
 
 
-def run_t2(ctx: Context, sec, workers: int = 6, since: str = "2009-01-01", limit: int | None = None) -> dict:
+def run_t2(ctx: Context, sec, workers: int = 6, since: str = "2009-01-01", limit: int | None = None,
+           retry_not_found: bool = False) -> dict:
     ciks = [r[0] for r in ctx.con.execute("SELECT DISTINCT cik FROM theme_candidates WHERE needs_10k "
                                           "AND cik IS NOT NULL ORDER BY cik").fetchall()]
     if limit:
@@ -36,7 +37,7 @@ def run_t2(ctx: Context, sec, workers: int = 6, since: str = "2009-01-01", limit
     stats = {"companies": len(ciks), "listing_failed": list_failed, "filings": len(filings), "ok": 0,
              "item1_not_found": 0, "fetch_failed": 0}
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = [pool.submit(fetch_item1, sec, f) for f in filings]
+        futs = [pool.submit(fetch_item1, sec, f, retry_not_found=retry_not_found) for f in filings]
         for i, fut in enumerate(as_completed(futs), 1):
             st = fut.result()["status"]
             key = "ok" if st == "ok" else "item1_not_found" if st == "item1_not_found" else "fetch_failed"

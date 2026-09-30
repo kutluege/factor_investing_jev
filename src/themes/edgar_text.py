@@ -95,16 +95,33 @@ _ITEM1A = re.compile(r"(?im)^\s*item\s*1a\s*[.:\-–—]?\s*(?:\n\s*)?risk\s+fac
 _ITEM2 = re.compile(r"(?im)^\s*item\s*2\s*[.:\-–—]?\s*(?:\n\s*)?(?:description\s+of\s+)?propert(?:y|ies)\b")
 
 
+# Fallback for 10-Ks without 'Item 1' labels in the body (cross-reference-index layouts such as GE, or the plain
+# upper-case BUSINESS heading of some recent filings): an upper-case BUSINESS heading up to RISK FACTORS.
+_BUS_FALLBACK = re.compile(r"(?m)^\s*(?:ITEM\s*1\s*[.:\-–—]?\s*)?BUSINESS\b")
+_RISK_FALLBACK = re.compile(r"(?m)^\s*(?:ITEM\s*1A\s*[.:\-–—]?\s*)?RISK\s+FACTORS\b")
+FALLBACK_MAX_SHARE = 0.5  # a fallback span covering most of the document is not a business section
+
+
 def extract_item1(text: str, min_chars: int = 1500) -> str | None:
     """Longest span from an 'Item 1. Business' heading to the next 'Item 1A' (else 'Item 2') heading.
 
     Taking the longest span skips table-of-contents entries, whose start and end headings are only a line apart.
+    Without such headings, an upper-case BUSINESS heading up to RISK FACTORS is used (at most half the document).
     """
-    starts = [m.start() for m in _ITEM1.finditer(text)]
+    found = _longest_span(text, [m.start() for m in _ITEM1.finditer(text)],
+                          [m.start() for m in _ITEM1A.finditer(text)], [m.start() for m in _ITEM2.finditer(text)],
+                          min_chars)
+    if found is None:
+        found = _longest_span(text, [m.start() for m in _BUS_FALLBACK.finditer(text)],
+                              [m.start() for m in _RISK_FALLBACK.finditer(text)], [], min_chars)
+        if found is not None and len(found) > FALLBACK_MAX_SHARE * len(text):
+            return None
+    return found
+
+
+def _longest_span(text: str, starts: list[int], ends_1a: list[int], ends_2: list[int], min_chars: int) -> str | None:
     if not starts:
         return None
-    ends_1a = [m.start() for m in _ITEM1A.finditer(text)]
-    ends_2 = [m.start() for m in _ITEM2.finditer(text)]
     best: tuple[int, int] | None = None
     for s in starts:
         nxt = [e for e in ends_1a if e > s] or [e for e in ends_2 if e > s]
@@ -185,10 +202,11 @@ def load_item1(f: Filing, cache_dir: Path = CACHE_DIR) -> dict | None:
         return json.load(fh)
 
 
-def fetch_item1(sec: SecClient, f: Filing, cache_dir: Path = CACHE_DIR) -> dict:
-    """Item 1 text for one filing (cache first; a network call only on a cache miss)."""
+def fetch_item1(sec: SecClient, f: Filing, cache_dir: Path = CACHE_DIR, retry_not_found: bool = False) -> dict:
+    """Item 1 text for one filing (cache first; a network call only on a cache miss). ``retry_not_found``
+    re-downloads filings cached as item1_not_found (after an extractor improvement)."""
     cached = load_item1(f, cache_dir)
-    if cached is not None:
+    if cached is not None and not (retry_not_found and cached.get("status") == "item1_not_found"):
         return cached
     try:
         html = sec.get_text(f.url, endpoint="archives_10k")

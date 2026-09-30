@@ -113,13 +113,47 @@ def t1_universe(db: str = typer.Option(None), skip_data: bool = False) -> None:
 
 @app.command("t2-item1")
 def t2_item1(db: str = typer.Option(None), workers: int = 6, since: str = "2009-01-01",
-             limit: int = typer.Option(None, help="only the first N companies (sample run)")) -> None:
+             limit: int = typer.Option(None, help="only the first N companies (sample run)"),
+             retry_not_found: bool = typer.Option(False, help="re-download filings cached as item1_not_found")
+             ) -> None:
     """T2: fetch and cache 10-K Item 1 text for candidates whose subthemes use keywords."""
     from src.themes.tasks import run_t2
     setup_logging()
     ctx = open_context(db, progress_printer)
     _, sec = make_clients(ctx)
-    print_json("T2", run_t2(ctx, sec, workers, since, limit))
+    print_json("T2", run_t2(ctx, sec, workers, since, limit, retry_not_found))
+
+
+@app.command("t2-samples")
+def t2_samples(n: int = 10, seed: int = 20260930) -> None:
+    """T2 review: n random cached Item 1 extractions (length, first/last 300 characters) + extraction statistics."""
+    import gzip
+    import json
+    import random
+
+    from src.config import PROJECT_ROOT
+    from src.themes.edgar_text import CACHE_DIR
+    files = sorted(CACHE_DIR.rglob("*.json.gz"))
+    recs = []
+    for p in files:
+        with gzip.open(p, "rt", encoding="utf-8") as fh:
+            recs.append(json.load(fh))
+    ok = [r for r in recs if r.get("status") == "ok"]
+    words = [r.get("item1_words", 0) for r in ok]
+    md = ["# T2 — 10-K Item 1 çıkarımı: örnekler", "",
+          f"Önbellekteki dosya: {len(recs)}; Item 1 bulunan: {len(ok)} (%{100 * len(ok) / max(1, len(recs)):.1f}); "
+          f"bulunamayan: {len(recs) - len(ok)}. Kelime sayısı medyanı: "
+          f"{sorted(words)[len(words) // 2] if words else 0}.", "",
+          "Yöntem: HTML → metin (gizli XBRL başlıkları, script/style atlanır); Item 1 = 'Item 1' başlığından "
+          "'Item 1A' (yoksa 'Item 2') başlığına kadar olan en uzun aralık (içindekiler tablosundaki kopyalar elenir).", ""]
+    for r in random.Random(seed).sample(ok, min(n, len(ok))):
+        text = r.get("item1", "")
+        md += [f"## {r.get('cik')} — {r.get('form')} {r.get('accession')} (kabul {r.get('acceptance')})", "",
+               f"Kelime: {r.get('item1_words')}, karakter: {len(text)}", "", "**İlk 300:**", "",
+               "> " + text[:300].replace("\n", " "), "", "**Son 300:**", "", "> " + text[-300:].replace("\n", " "), ""]
+    out = PROJECT_ROOT / "reports" / "themes" / "T2_item1_samples.md"
+    out.write_text("\n".join(md) + "\n", encoding="utf-8")
+    print_json("T2 samples", {"files": len(recs), "ok": len(ok), "report": str(out)})
 
 
 @app.command("t3-membership")
