@@ -134,3 +134,10 @@ def test_shortlist_overrides_and_evidence(tmp_path):
     assert (sl["signal"] == "WAIT").sum() > 0
     assert "Tema seçim listesi" in shortlist_markdown(sl.reset_index(), d, CFG)
     assert load_overrides(tmp_path / "missing.yaml") == {"include": set(), "exclude": set()}
+
+
+def test_period_returns_per_symbol_haircut():
+    idx = pd.bdate_range("2020-01-01", periods=4)
+    close = pd.DataFrame({"A": [10, 10, 10, 10.0], "B": [10, 10, np.nan, np.nan]}, index=idx)
+    r = period_returns(close, {idx[0]: ["A", "B"]}, [idx[0], idx[3]], haircut=pd.Series({"B": 0.3}))
+    assert r.iloc[0] == pytest.approx((0.0 + -0.3) / 2)

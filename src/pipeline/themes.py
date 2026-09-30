@@ -327,11 +327,12 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
     panel = load_theme_panel(ctx.con)
     scores = score_panel(panel, cfg)
     md_ = load_market_data(ctx.con, sorted(panel["symbol"].unique()))
-    bt = ThemeBacktester(panel, scores, cfg, md_.mats["open"], md_.mats["close"])
+    from src.features.momentum import delisting_haircuts
+    haircut = delisting_haircuts(md_.mats["close"], md_.mats["raw_close"], load_config("backtest")["costs"])
+    bt = ThemeBacktester(panel, scores, cfg, md_.mats["open"], md_.mats["close"], haircuts=haircut)
     s0 = pd.Timestamp(start)
     r1, r2 = bt.run(1.0, s0), bt.run(2.0, s0)
     dates = [d for d in bt.dates if d >= s0]
-    haircut = float(load_config("backtest")["costs"]["delisting_haircut"])
     idx = theme_indices(panel, md_.mats["close"], cfg, dates, haircut)
     port, port2 = equity_period_returns(r1.equity, dates), equity_period_returns(r2.equity, dates)
     succ = success_table(port, idx["composite"], port2, cfg.research.subperiods)
@@ -361,7 +362,9 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
           "Parametre taraması yok; yapılandırma hiçbir parametre tahmin etmediği için tüm dönem örneklem dışıdır ve "
           "ön kayıtlı alt dönemler walk-forward katmanlarının yerini tutar.",
           "Maliyetler: mevcut model (komisyon, kayma, işlem maliyeti, Abdi–Ranaldo yarım spread); delist: son kapanış "
-          f"− %{haircut * 100:.0f}. Tema endeksleri maliyetsiz, aylık yeniden dengelenen eşit ağırlıklıdır.", "",
+          f"eksi sembol bazlı kesinti (sıkıntılı delist %{load_config('backtest')['costs']['distress_haircut'] * 100:.0f}, "
+          "diğerleri yapılandırılmış oran; portföy ve endeks aynı kuralı kullanır). Tema endeksleri maliyetsiz, aylık "
+          "yeniden dengelenen eşit ağırlıklıdır.", "",
           "## §8 Başarı ölçütü (ön kayıtlı; CAGR hedefi değil)", "",
           "| Ölçüt | Değer | Sonuç |", "|---|---|---|",
           f"| Seçim katkısı > 0 alt dönemlerin ≥ 2/3'ünde | {c['subperiods_positive']} | {'✔' if c['c1_subperiods'] else '✘'} |",

@@ -56,7 +56,9 @@ def monthly_signals(cross: pd.DataFrame, cfg: ThemesConfig, held: dict[str, str]
 
 class ThemeBacktester:
     def __init__(self, panel: pd.DataFrame, scores: pd.DataFrame, cfg: ThemesConfig, open_px: pd.DataFrame,
-                 close_px: pd.DataFrame, initial_capital: float = 100_000.0):
+                 close_px: pd.DataFrame, initial_capital: float = 100_000.0, haircuts: pd.Series | None = None):
+        """``haircuts``: per-symbol delisting haircuts (``src.features.momentum.delisting_haircuts``; distress
+        delistings lose more than mergers); defaults to the flat configured haircut."""
         self.cfg = cfg
         cols = ["rebalance_date", "symbol", "theme", "subtheme", "stage", "vol_60d", "spread_est"]
         p = panel[panel["eligible"]][[c for c in cols if c in panel]]
@@ -69,6 +71,7 @@ class ThemeBacktester:
         self.last_valid = close_px.apply(lambda s: s.last_valid_index())
         self.bt = load_config("backtest")
         self.initial_capital = initial_capital
+        self.haircuts = haircuts if haircuts is not None else pd.Series(dtype=float)
 
     def run(self, cost_multiplier: float = 1.0, start: pd.Timestamp | None = None) -> ThemeBacktestResult:
         cfg, ccfg = self.cfg, self.bt["costs"]
@@ -107,7 +110,8 @@ class ThemeBacktester:
                     if px is None or px != px:
                         lv = self.last_valid.get(s)
                         if lv is not None and lv < day:
-                            px = last_close.get(s, pos.entry_price) * (1 - float(ccfg["delisting_haircut"]))
+                            hc = float(self.haircuts.get(s, ccfg["delisting_haircut"]))
+                            px = last_close.get(s, pos.entry_price) * (1 - hc)
                             reason += " [delisted: last close]"
                         else:
                             continue
@@ -150,7 +154,7 @@ def _trade(d, f) -> dict:
 
 
 def period_returns(close: pd.DataFrame, members: dict[pd.Timestamp, list[str]], dates: list[pd.Timestamp],
-                   haircut: float) -> pd.Series:
+                   haircut: float | pd.Series) -> pd.Series:
     """Equal-weight close-to-close return of ``members[d]`` from d to the next date (costless index). A member
     that stops trading inside the period is valued at its last close minus ``haircut``."""
     out = {}
@@ -163,7 +167,8 @@ def period_returns(close: pd.DataFrame, members: dict[pd.Timestamp, list[str]], 
         c1 = close.loc[d1, syms]
         last = window.ffill().iloc[-1]
         dead = c1.isna() & last.notna()
-        c1 = c1.where(~dead, last * (1 - haircut))
+        hc = haircut.reindex(syms).fillna(0.0) if isinstance(haircut, pd.Series) else haircut
+        c1 = c1.where(~dead, last * (1 - hc))
         r = (c1 / c0 - 1.0).replace([np.inf, -np.inf], np.nan).dropna()
         if len(r):
             out[d1] = float(r.mean())
@@ -171,7 +176,7 @@ def period_returns(close: pd.DataFrame, members: dict[pd.Timestamp, list[str]], 
 
 
 def theme_indices(panel: pd.DataFrame, close: pd.DataFrame, cfg: ThemesConfig, dates: list[pd.Timestamp],
-                  haircut: float) -> pd.DataFrame:
+                  haircut: float | pd.Series) -> pd.DataFrame:
     el = panel[panel["eligible"]]
     out = {}
     for t, th in cfg.themes.items():
