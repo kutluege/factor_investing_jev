@@ -5,8 +5,8 @@ Documents are fetched from www.sec.gov/Archives at <= 8 requests/second through 
 extracted Item 1 text is cached (gzip JSON, one file per accession), so a re-run makes no network calls and raw
 filings (often several MB of inline XBRL) are not stored.
 
-Timing: EDGAR's ``acceptanceDateTime`` is published with a "Z" suffix but carries US Eastern wall-clock time
-(acceptance window 06:00-22:00 ET). We interpret it as Eastern time; see ``valid_from_session`` in membership.py.
+Timing: EDGAR's ``acceptanceDateTime`` is UTC (verified against filing index pages); it is converted to US Eastern
+time before the 16:00 ET session rule, see ``eastern_time`` / ``valid_from_session`` in membership.py.
 """
 from __future__ import annotations
 
@@ -148,18 +148,23 @@ def _rows_from(block: dict, cik: str, forms: tuple[str, ...]) -> list[Filing]:
     return out
 
 
+def submission_blocks(sec: SecClient, cik: int | str, since: str = "0000") -> list[dict]:
+    """Columnar filing blocks for a company: ``filings.recent`` plus the older paged files that reach ``since``."""
+    sub = sec.submissions(cik10(cik))
+    blocks = [sub["filings"]["recent"]]
+    for f in sub["filings"].get("files", []):
+        if f.get("filingTo", "9999") < since:
+            continue
+        blocks.append(sec.get_json(f"{sec.base}/submissions/{f['name']}",
+                                   ttl_hours=sec.cfg["ttl_hours"]["submissions"], endpoint="submissions_page"))
+    return blocks
+
+
 def list_annual_filings(sec: SecClient, cik: int | str, since: str = "2009-01-01",
                         forms: tuple[str, ...] = ANNUAL_FORMS) -> list[Filing]:
     """All 10-K style filings since ``since`` (recent block plus the older paged blocks)."""
     c = cik10(cik)
-    sub = sec.submissions(c)
-    out = _rows_from(sub["filings"]["recent"], c, forms)
-    for f in sub["filings"].get("files", []):
-        if f.get("filingTo", "9999") < since:
-            continue
-        page = sec.get_json(f"{sec.base}/submissions/{f['name']}", ttl_hours=sec.cfg["ttl_hours"]["submissions"],
-                            endpoint="submissions_page")
-        out += _rows_from(page, c, forms)
+    out = [r for block in submission_blocks(sec, c, since) for r in _rows_from(block, c, forms)]
     seen, uniq = set(), []
     for r in sorted(out, key=lambda r: r.filing_date):
         if r.accession not in seen and r.filing_date >= since:

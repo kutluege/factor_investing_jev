@@ -3,6 +3,7 @@ import pandas as pd
 from src.themes.config import load_themes_config
 from src.themes.membership import (
     choose_primary,
+    eastern_time,
     evidence_sentences,
     keyword_hits,
     members_on,
@@ -30,12 +31,20 @@ def test_keyword_hits_substring_case_insensitive():
 
 
 def test_valid_from_session_rule():
+    # EDGAR stamps are UTC; March 2024 before DST = UTC-5
     # accepted 10:00 ET on Tue 2024-03-05 -> usable Wed 2024-03-06
-    assert valid_from_session("2024-03-05T10:00:00.000Z", SESSIONS) == pd.Timestamp("2024-03-06")
+    assert valid_from_session("2024-03-05T15:00:00.000Z", SESSIONS) == pd.Timestamp("2024-03-06")
     # accepted 17:30 ET -> news of Wed -> usable Thu
-    assert valid_from_session("2024-03-05T17:30:00.000Z", SESSIONS) == pd.Timestamp("2024-03-07")
-    # Friday after the close -> Tuesday
-    assert valid_from_session("2024-03-08T16:05:00.000Z", SESSIONS) == pd.Timestamp("2024-03-12")
+    assert valid_from_session("2024-03-05T22:30:00.000Z", SESSIONS) == pd.Timestamp("2024-03-07")
+    # 21:00 ET on Tue is already Wed in UTC -> still Tuesday's after-close news -> usable Thu
+    assert valid_from_session("2024-03-06T02:00:00.000Z", SESSIONS) == pd.Timestamp("2024-03-07")
+    # Friday 16:05 ET after the close -> Tuesday
+    assert valid_from_session("2024-03-08T21:05:00.000Z", SESSIONS) == pd.Timestamp("2024-03-12")
+
+
+def test_eastern_time_handles_dst():
+    assert eastern_time("2024-02-01T21:12:25.000Z") == pd.Timestamp("2024-02-01 16:12:25")  # EST, UTC-5
+    assert eastern_time("2019-08-01T20:23:44.000Z") == pd.Timestamp("2019-08-01 16:23:44")  # EDT, UTC-4
 
 
 def test_membership_threshold_and_validity_chain():

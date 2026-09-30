@@ -142,5 +142,43 @@ def t3r_review(db: str = typer.Option(None), n: int = 120) -> None:
     print_json("T3r", run_t3r(ctx, fmp, load_strict(), n))
 
 
+@app.command("t4b-verify")
+def t4b_verify(n: int = 20, seed: int = 20260930) -> None:
+    """T4b: FMP earnings dates vs 8-K Item 2.02 acceptance dates on n random firm-quarters (US theme industries)."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT
+    from src.data.fmp import FmpClient
+    from src.data.sec import SecClient
+    from src.themes.config import load_strict
+    from src.themes.earnings import AGREEMENT_THRESHOLD, compare_sample
+    setup_logging()
+    cfg = load_strict()
+    inv = pd.read_csv(PROJECT_ROOT / "research" / "themes" / "fmp_screener_inventory.csv")
+    inv = inv[inv["industry"].isin(cfg.all_fmp_industries()) & (inv["country"] == "US")]
+    sec = SecClient()
+    tick = pd.DataFrame(sec.company_tickers_exchange())[["ticker", "cik"]].drop_duplicates("ticker")
+    pool = inv.merge(tick, left_on="symbol", right_on="ticker")[["symbol", "cik"]]
+    res = compare_sample(FmpClient(), sec, pool, n=n, seed=seed)
+    out = PROJECT_ROOT / "research" / "themes" / "T4b_earnings_dates_sample.csv"
+    res.to_csv(out, index=False)
+    same = float(res["agree_same_day"].mean())
+    print_json("T4b", {"pool": len(pool), "sample": len(res), "same_day": same,
+                       "within_1_day": float(res["agree_within_1"].mean()),
+                       "decision": "fmp_dates" if same >= AGREEMENT_THRESHOLD else "8k_dates", "csv": str(out)})
+
+
+@app.command("t4b-events")
+def t4b_events(db: str = typer.Option(None), workers: int = 4) -> None:
+    """T4b: announcement events (8-K Item 2.02 timing + FMP realized EPS) for all theme candidates."""
+    from src.themes.earnings import build_earnings_events
+    from src.themes.tasks import sessions
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    fmp, sec = make_clients(ctx)
+    cands = ctx.con.execute("SELECT symbol, cik FROM theme_candidates WHERE cik IS NOT NULL").df()
+    print_json("T4b events", build_earnings_events(ctx.con, fmp, sec, cands, sessions(ctx.con), workers))
+
+
 if __name__ == "__main__":
     app()

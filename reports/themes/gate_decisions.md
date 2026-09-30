@@ -40,3 +40,10 @@ Starter planda **HTTP 402** (Premium) döndü; `BZUSD` açık ve 2007-07'den bu 
 Karar: `oil_beta_trend` hesabında WTI yerine **Brent (BZUSD)** kullanılır. Haftalık Brent ve WTI getirileri çok
 yüksek korelasyonludur; regresyon (β_oil) ve trend işareti (126 seans) için ekonomik anlamı aynıdır. Bu, ön kayıt
 öncesi bir veri erişim kararıdır (themes_v2 gerektirmez); `src/features/theme_features.py` içinde belgelenmiştir.
+
+## Kapı 5 — T4b: FMP duyuru tarihleri (2026-09-30, sonuç görülmeden)
+
+20 rastgele firma-çeyrekte FMP `earnings` tarihi ile EDGAR 8-K Item 2.02 kabul tarihi (ET) aynı günde **16/20 = %80**
+uyuştu (±1 gün: %90). Eşik ≥ %90 aynı gün → karşılanmadı. Karar: `ear_3d` ve `sue_announce` zamanlaması **8-K
+tarihlerinden**; FMP yalnızca gerçekleşen EPS değeri için (±3 gün eşleşme). Ayrıntı: `T4b_earnings_dates.md`.
+Aynı çalışmada EDGAR `acceptanceDateTime` alanının UTC olduğu doğrulandı ve üyelik seans kuralı düzeltildi.

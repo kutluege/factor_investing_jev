@@ -16,6 +16,7 @@ import pandas as pd
 from src.themes.config import ThemesConfig
 
 MARKET_CLOSE_HOUR = 16
+EASTERN = "America/New_York"
 MAX_VALIDITY_MONTHS = 18
 
 DDL = """CREATE TABLE IF NOT EXISTS theme_membership (
@@ -36,10 +37,20 @@ def density(hits: int, words: int) -> float:
     return hits / words * 10_000 if words else 0.0
 
 
+def eastern_time(acceptance: str) -> pd.Timestamp:
+    """EDGAR submissions ``acceptanceDateTime`` (UTC, "Z") -> naive US Eastern wall-clock time.
+
+    Verified 2026-09-30 against filing index pages: JSON 2024-02-01T21:12:25Z = "Accepted 2024-02-01 16:12:25"."""
+    ts = pd.Timestamp(str(acceptance))
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    return ts.tz_convert(EASTERN).tz_localize(None)
+
+
 def valid_from_session(acceptance: str, sessions: pd.DatetimeIndex) -> pd.Timestamp:
     """First session at which a filing may be used: +1 session after acceptance; accepted at/after 16:00 ET counts
-    as the next session's news, so +1 session after that. EDGAR stamps are Eastern wall-clock time."""
-    ts = pd.Timestamp(str(acceptance).replace("Z", "").replace("T", " "))
+    as the next session's news, so +1 session after that."""
+    ts = eastern_time(acceptance)
     day = ts.normalize()
     effective = day if ts.hour < MARKET_CLOSE_HOUR else _next_session(day, sessions)
     return _next_session(effective, sessions)
