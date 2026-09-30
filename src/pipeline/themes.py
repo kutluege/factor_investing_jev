@@ -180,5 +180,31 @@ def t4b_events(db: str = typer.Option(None), workers: int = 4) -> None:
     print_json("T4b events", build_earnings_events(ctx.con, fmp, sec, cands, sessions(ctx.con), workers))
 
 
+@app.command("t5a-french")
+def t5a_french() -> None:
+    """T5a: download/cache Kenneth French FF3, FF5, MOM, RF (monthly) and report coverage."""
+    from src.config import PROJECT_ROOT
+    from src.data.french import CACHE_DIR, FILES, coverage, french_monthly
+    setup_logging()
+    df = french_monthly()
+    cov = coverage(df)
+    md = ["# T5a — Kenneth French veri kütüphanesi", "",
+          f"Kaynak: {', '.join(f for f, _ in FILES.values())} (aylık tablo; yüzde → ondalık; ay sonu indeks).",
+          f"Önbellek: `{CACHE_DIR.relative_to(PROJECT_ROOT).as_posix()}/` (30 gün; ağ yoksa eski önbellek ya da elle "
+          "indirilen zip kullanılır).", "",
+          "| Seri | Başlangıç | Bitiş | Ay |", "|---|---|---|---|"]
+    md += [f"| `{c}` | {r.start} | {r.end} | {r.months} |" for c, r in cov.iterrows()]
+    md += ["", "Adlandırma: dış kıyas faktörleri `ff_`/`ff5_` önekli; `mimic_` yalnızca projenin kendi faktör-taklit "
+           "portföyleri, `fmp_` yalnızca FMP alanları içindir.",
+           "Kontroller (`src/features/theme_features.py`): `beta_252d` = SPY'a karşı günlük CAPM betası (son 252 seans, "
+           "en az 200 gözlem); `size_ln_mcap` = ln(piyasa değeri, USD).",
+           "Hizalama: portföy getirileri ay içindeki son işlem gününde damgalanır ve `to_month_end` ile takvim ay sonuna "
+           "taşınır (test: `tests/test_french.py`)."]
+    out = PROJECT_ROOT / "reports" / "themes" / "T5a_french.md"
+    out.write_text("\n".join(md) + "\n", encoding="utf-8")
+    print_json("T5a", {k: {kk: str(vv) for kk, vv in v.items()} for k, v in cov.T.to_dict().items()})
+    console.print(f"wrote {out}")
+
+
 if __name__ == "__main__":
     app()

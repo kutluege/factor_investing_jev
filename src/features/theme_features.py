@@ -67,3 +67,26 @@ def oil_beta_trend_at(close: pd.DataFrame, market: pd.Series, oil: pd.Series, at
         coef, *_ = np.linalg.lstsq(X[ok], Y[ok, j], rcond=None)
         out[wr.columns[j]] = float(coef[2] * trend)
     return pd.Series(out, dtype=float)
+
+
+def beta_252d_at(close: pd.DataFrame, market: pd.Series, at: pd.Timestamp, n: int = 252,
+                 min_obs: int = 200) -> pd.Series:
+    """Fama-MacBeth control (THEMES_SPEC §7.6): CAPM beta on daily returns, last ``n`` sessions up to ``at``,
+    at least ``min_obs`` paired observations. Market proxy: SPY."""
+    r = close.loc[:at].pct_change(fill_method=None).tail(n)
+    m = market.loc[:at].pct_change(fill_method=None).reindex(r.index)
+    out = {}
+    for sym in r.columns:
+        ok = r[sym].notna() & m.notna()
+        if ok.sum() < min_obs:
+            continue
+        x, y = m[ok].to_numpy(float), r.loc[ok, sym].to_numpy(float)
+        var = x.var(ddof=1)
+        if var > 0:
+            out[sym] = float(np.cov(x, y, ddof=1)[0, 1] / var)
+    return pd.Series(out, dtype=float)
+
+
+def size_ln_mcap(market_cap: pd.Series) -> pd.Series:
+    """Fama-MacBeth size control: ln(market cap in USD); non-positive caps -> NaN."""
+    return np.log(market_cap.where(market_cap > 0))
