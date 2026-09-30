@@ -20,6 +20,8 @@ FUNDAMENTAL_FEATURES = [
     "share_dilution_yoy",
     # literature additions (see src/features/research_features.py docstring / docs/RESEARCH.md)
     "cop_at", "ocf_ev", "asset_growth", "share_issuance", "droe", "sue", "fscore", "accruals",
+    # themes_v1 (THEMES_SPEC §4, §5.2): stage inputs and new characteristics
+    "ocf_ttm", "revenue_ttm", "capex_at", "net_debt_ebitda",
 ]
 
 
@@ -198,6 +200,13 @@ def compute_fundamental_features(snap: pd.DataFrame, price: pd.Series, splits: p
     n_known = known.sum(axis=1)
     # scale to 0..9 over the signals that can be computed; require at least 6 of 9
     f["fscore"] = ((signals & known).sum(axis=1) / n_known.replace(0, np.nan) * 9).where(n_known >= 6)
+
+    # --- themes_v1 additions ------------------------------------------------------------------------------------
+    f["ocf_ttm"] = ocf                      # stage flag input: pre_profit when <= 0
+    f["revenue_ttm"] = rev                  # biotech clinical/commercial threshold input
+    f["capex_at"] = _div(_col(df, "capex__ttm"), assets).clip(0, 2)            # investment (-)
+    ebitda = ebit + dep.fillna(0)
+    f["net_debt_ebitda"] = _div(debt - cash, ebitda).clip(-20, 50)             # leverage (-); EBITDA <= 0 -> NaN
     return f.replace([np.inf, -np.inf], np.nan), mcap
 
 

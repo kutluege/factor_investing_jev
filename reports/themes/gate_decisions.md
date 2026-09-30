@@ -32,3 +32,11 @@ sanayi listesinde. Hiçbir ad değiştirilmedi; yalnızca `# VERIFY` işaretleri
   korunur (geçmişte listeli/delist firmaları yakalayabilir, maliyeti yok).
 - FMP `country` alanı yabancı firmaları gösteriyor (ör. Auto - Manufacturers: 33 firmanın 14'ü ABD); yabancı
   dosyalayanlar (20-F/40-F) T1'de `include_foreign_filers: false` ile SEC form türüne göre çıkarılır.
+
+## Veri kararı — `oil_beta_trend` petrol serisi (2026-09-30, sonuç görülmeden)
+
+FMP `commodities-list` WTI'yi `CLUSD` ve Brent'i `BZUSD` olarak listeliyor. `historical-price-eod/full?symbol=CLUSD`
+Starter planda **HTTP 402** (Premium) döndü; `BZUSD` açık ve 2007-07'den bu yana günlük veri içeriyor.
+Karar: `oil_beta_trend` hesabında WTI yerine **Brent (BZUSD)** kullanılır. Haftalık Brent ve WTI getirileri çok
+yüksek korelasyonludur; regresyon (β_oil) ve trend işareti (126 seans) için ekonomik anlamı aynıdır. Bu, ön kayıt
+öncesi bir veri erişim kararıdır (themes_v2 gerektirmez); `src/features/theme_features.py` içinde belgelenmiştir.
