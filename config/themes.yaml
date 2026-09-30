@@ -1,0 +1,215 @@
+# =============================================================================
+# themes.yaml — Tema / sektör parametreleri (themes_v1)
+# Kod değiştirmeden buradan yönetilir. Detaylar: docs/THEMES_SPEC.md
+#
+# ÖNEMLİ: fmp_industries listeleri, FMP'deki gerçek sanayi isimleri dökülmeden
+# (Görev T0) KESİN değildir ve "# VERIFY" ile işaretlidir. Yükleyici, FMP'de
+# bulunmayan bir sanayi adı görürse HATA vermelidir (sessizce atlamamalı).
+#
+# Bu dosya bir araştırma koşusundan önce research/preregistration/ altına
+# kopyalanıp hash'lenir. Sonuç görüldükten sonra değiştirilmez; değişiklik =
+# yeni sürüm (themes_v2) + docs/CHANGELOG_THEMES.md'ye gerekçe.
+# =============================================================================
+
+version: themes_v1
+
+universe:
+  exchanges: [NASDAQ, NYSE]
+  include_nyse_american: false
+  include_adr: false
+  include_foreign_filers: false   # 20-F / 40-F dosyalayanlar (ör. Kanadalı enerji) — us-gaap XBRL yok
+  min_price: 3.0                  # işlem gören (traded) fiyat
+  min_market_cap: 300_000_000
+  min_adv20: 5_000_000
+  min_history_sessions: 252
+
+classification:
+  text_source: edgar_10k_item1    # backtest'te üyelik için TEK geçerli kaynak (PIT)
+  forms: [10-K, 10-K405, 10-KT]
+  valid_from: acceptance_plus_1_session   # 16:00 ET sonrası kabul → ertesi seans
+  valid_until: next_10k_or_18_months      # yeni 10-K yoksa 18 ay sonra üyelik düşer
+  match: case_insensitive_substring
+  one_theme_per_firm: true
+  primary_subtheme: highest_hit_density   # birden çok alt temaya uyarsa
+  theme_tie_priority: [biotech, energy, robotics]
+  review_file: research/themes/membership_review.csv
+  live_manual_overrides: true     # include/exclude sadece canlı listede
+  backtest_manual_overrides: false
+
+stage:
+  # Tüm temalarda: TTM faaliyet nakit akışı <= 0 ise "pre_profit" faktör seti
+  pre_profit_rule: ocf_ttm_le_zero
+  # Biotech: ürün/toplam gelir TTM bu eşiğin altındaysa "clinical", üstündeyse "commercial"
+  biotech_commercial_revenue_usd: 50_000_000
+
+scoring:
+  normalization: rank_to_normal          # Φ⁻¹((rank-0.5)/n), tarih bazında
+  price_signal_scope: theme              # fiyat sinyalleri tema içinde sıralanır
+  accounting_signal_scope: subtheme_if_n_ge_8_else_theme
+  group_weights: equal                   # faktör grupları eşit ağırlık, SABİT
+  min_coverage: 0.30
+  min_weight_present: 0.50
+
+portfolio:
+  rebalance: monthly
+  weighting: equal                       # tema ağırlığı / n_picks
+  hold_buffer: 3.0
+  max_share_per_subtheme: 0.5            # bir temanın seçimlerinin en fazla %50'si aynı alt temadan
+  position_cap: 0.08
+  entry_block_top_vol_pct: 0.03
+  costs: default                         # mevcut maliyet modeli (Abdi–Ranaldo dahil)
+
+ta_layer:
+  interval_days: 2                       # 2–3 günde bir teknik analiz tablosu
+  journal_file: research/ta/trade_journal.csv
+  rules_file: research/ta/rules.yaml     # kurallar önceden yazılır, optimize edilmez
+  auto_trade: false                      # sadece öneri + günlük; otomatik işlem yok
+
+# -----------------------------------------------------------------------------
+# ARAŞTIRMA MODÜLÜ (THEMES_SPEC §7) — ders notlarındaki yönteme göre
+# -----------------------------------------------------------------------------
+research:
+  horizons: [21, 63, 126]                 # seans
+  winsorize: [0.005, 0.995]               # ham değerli analizlerde (tanımlayıcı ist., FM ham varyant)
+  sort_portfolios:
+    n_if_ge_50: 5                         # quintile
+    n_if_lt_50: 3                         # tercile (küçük temalar)
+  breakpoints: dynamic_per_month          # her ay yeniden; statik eşik yok
+  portfolio_weighting: [equal, value]
+  alpha_models: [capm, ff3, carhart4, ff5_mom]   # Kenneth French veri kütüphanesi (RF dahil)
+  fm_controls: [beta_252d, size_ln_mcap]  # beta günlük veriden, en az 200 gözlem
+  fm_variants: [ols_rank_normal, ols_winsorized_raw, wls_sqrt_mcap]
+  nw_lags: horizon_div_21_min_1
+  corr_redundancy_threshold: 0.7          # aylık kesitsel korelasyonların zaman ortalaması
+  vif_threshold: 5
+  persistence_lags_months: [1, 3, 6, 12]
+  bivariate_sort: dependent               # önce mevcut tema skoru (tercile), sonra yeni faktör
+  subperiods: [["2011-07", "2015-12"], ["2016-01", "2020-12"], ["2021-01", "2026-09"]]
+  min_names_per_date: 15
+
+# -----------------------------------------------------------------------------
+# TEMALAR
+# weight toplamı 1.0 olmalı (yükleyici kontrol eder). enabled: false → tema kapalı,
+# ağırlığı diğer açık temalara oransal dağıtılır.
+# -----------------------------------------------------------------------------
+themes:
+
+  robotics:
+    enabled: true
+    weight: 0.40
+    n_picks: 8
+    benchmarks: [ROBO, BOTZ]   # ETF başlangıç tarihlerine dikkat (BOTZ 2016)
+    subthemes:
+      industrial_automation:
+        fmp_industries: ["Industrial - Machinery", "Electrical Equipment & Parts",
+                         "Industrial - Specialties"]                          # VERIFY
+        sic: [3559, 3569, 3625, 3823, 3829]
+        keywords: ["industrial robot", "robotic", "factory automation", "motion control",
+                   "machine vision", "collaborative robot", "cobot",
+                   "warehouse automation", "programmable logic controller"]
+        min_hits: 5
+      surgical_medical:
+        fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies"]  # VERIFY
+        sic: [3841, 3842, 3845]
+        keywords: ["surgical robot", "robotic surgery", "robotic-assisted",
+                   "robotic assisted", "robotic system", "robotic platform"]
+        min_hits: 3
+      autonomous_drone:
+        fmp_industries: ["Auto - Manufacturers", "Auto - Parts", "Aerospace & Defense",
+                         "Software - Application", "Software - Infrastructure"]  # VERIFY
+        sic: [3711, 3714, 3721, 3728, 3812, 7372]
+        keywords: ["autonomous vehicle", "autonomous driving", "self-driving", "lidar",
+                   "drone", "unmanned aerial", "unmanned aircraft", "robotaxi"]
+        min_hits: 5
+      components:
+        fmp_industries: ["Semiconductors", "Hardware, Equipment & Parts",
+                         "Electrical Equipment & Parts"]                       # VERIFY
+        sic: [3621, 3674, 3679, 3825, 3829]
+        keywords: ["robot"]        # "robotic", "robotics" da eşleşir
+        min_hits: 8                # yüksek eşik: genel çip/sensör firmalarını ayıklar
+
+  biotech:
+    enabled: true
+    weight: 0.35
+    n_picks: 7
+    benchmarks: [XBI, IBB]
+    split: stage                   # clinical vs commercial ayrı faktör seti
+    subthemes:
+      biotech_all:
+        fmp_industries: ["Biotechnology", "Drug Manufacturers - Specialty & Generic"]  # VERIFY
+        sic: [2834, 2835, 2836, 8731]
+        keywords: []               # sanayi/SIC yeterli
+        min_hits: 0
+
+  energy:
+    enabled: true
+    weight: 0.25
+    n_picks: 6
+    benchmarks: [XLE, XLU, ICLN]
+    subthemes:
+      oil_gas:
+        fmp_industries: ["Oil & Gas Exploration & Production", "Oil & Gas Integrated",
+                         "Oil & Gas Midstream", "Oil & Gas Equipment & Services",
+                         "Oil & Gas Refining & Marketing"]                    # VERIFY
+        sic: [1311, 1381, 1382, 1389, 2911, 4922, 4923]
+        keywords: []
+        min_hits: 0
+      power_utilities:
+        fmp_industries: ["Regulated Electric", "Independent Power Producers",
+                         "Diversified Utilities"]                              # VERIFY
+        sic: [4911, 4931, 4991]
+        keywords: []
+        min_hits: 0
+      nuclear_uranium:
+        fmp_industries: ["Uranium"]                                            # VERIFY
+        sic: [1094, 4911]
+        keywords: ["uranium", "nuclear fuel", "small modular reactor", "nuclear reactor"]
+        min_hits: 3
+      grid_equipment:
+        fmp_industries: ["Electrical Equipment & Parts"]                       # VERIFY
+        sic: [3612, 3613, 3621]
+        keywords: ["transmission", "switchgear", "transformer", "power grid",
+                   "data center power", "electrical infrastructure"]
+        min_hits: 5
+      renewables:
+        fmp_industries: ["Solar", "Renewable Utilities"]                       # VERIFY
+        sic: [3674, 4911, 4991]
+        keywords: ["solar", "photovoltaic", "wind turbine", "energy storage",
+                   "battery storage", "hydrogen", "fuel cell", "geothermal"]
+        min_hits: 5
+
+# -----------------------------------------------------------------------------
+# FAKTÖR SETLERİ (literatüre dayalı, sonuç görülmeden SABİTLENDİ)
+# "-" öneki: düşük değer iyi. Grup içi ortalama → gruplar eşit ağırlık.
+# -----------------------------------------------------------------------------
+factor_groups:
+  momentum:        [mom_12_1, dist_52w_high]
+  low_risk:        [-idio_vol_60d, -max_ret_21d]
+  investment:      [-share_issuance, -asset_growth, -capex_at]
+  quality:         [gross_profitability, cop_at]
+  value:           [ebit_ev, ocf_ev]
+  fundamental_mom: [sue, droe]
+  growth_quality:  [profitable_growth]
+  survival:        [cash_runway_years]
+  leverage:        [-net_debt_ebitda]
+  commodity:       [oil_beta_trend]
+  earnings_event:  [ear_3d, sue_announce]     # T4b: FMP earnings endpoint doğrulanınca
+
+factor_sets:
+  pre_profit:         [momentum, low_risk, investment, survival]
+  profitable_general: [momentum, low_risk, investment, quality, fundamental_mom, growth_quality]
+  biotech_commercial: [momentum, low_risk, investment, quality, fundamental_mom]
+  energy_profitable:  [momentum, low_risk, investment, quality, value, leverage]
+
+theme_factor_map:
+  robotics:
+    pre_profit: pre_profit
+    profitable: profitable_general
+  biotech:
+    clinical: pre_profit
+    commercial: biotech_commercial
+  energy:
+    pre_profit: pre_profit
+    profitable: energy_profitable
+    subtheme_extra:
+      oil_gas: [commodity]          # sadece petrol/gaz alt temasında
