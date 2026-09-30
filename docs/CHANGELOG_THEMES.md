@@ -17,4 +17,8 @@ Bunlar ön kayıttan ÖNCE, hiçbir getiri sonucu görülmeden verilen veri/uygu
 - `max_share_per_subtheme`: tavan ⌈0,5 × n_picks⌉, yalnızca ≥ 2 alt tema sıralandığında (tek alt temalı biotech için
   kural anlamsızdı).
 
-Kapı 2 (T3r) ve ön kayıt SHA256'sı bu dosyaya T3r ve `t5-preregister` sonrasında eklenecektir.
+- Kapı 2 (T3r): ilk isabet %83,3 < %85 → tek revizyon: SPAC ("blank check company") 10-K'ları üyelik vermez;
+  `autonomous_drone.min_hits` 5 → 10; inceleme yalnızca işlem gören sembollerde. Revizyon sonrası %91,7.
+  Sebep olan sonuç: sınıflandırma hataları (getiri değil). Ayrıntı: `reports/themes/gate_decisions.md`.
+
+Ön kayıt SHA256'sı `t5-preregister` sonrasında eklenecektir.

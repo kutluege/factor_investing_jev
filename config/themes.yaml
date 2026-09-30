@@ -121,7 +121,7 @@ themes:
         sic: [3711, 3714, 3721, 3728, 3812, 7372]
         keywords: ["autonomous vehicle", "autonomous driving", "self-driving", "lidar",
                    "drone", "unmanned aerial", "unmanned aircraft", "robotaxi"]
-        min_hits: 5
+        min_hits: 10                 # Kapı 2 revizyonu (2026-09-30): 5 → 10, bkz. docs/CHANGELOG_THEMES.md
       components:
         fmp_industries: ["Semiconductors", "Hardware, Equipment & Parts",
                          "Electrical Equipment & Parts"]

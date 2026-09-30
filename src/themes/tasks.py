@@ -85,6 +85,11 @@ def run_t3(ctx: Context, sec, cfg: ThemesConfig) -> dict:
                            for d in me]).fillna(0)
     counts.to_csv(out_dir / "theme_date_counts.csv", index=False)
     cur = members_on(df, sess[-1])
+    # review only names that still trade: a retired SPAC ticker shares its CIK with the post-merger company and
+    # would otherwise inherit that company's 10-Ks (it has no prices after the merger, so backtests are unaffected)
+    trading = {r[0] for r in ctx.con.execute("SELECT symbol FROM daily_prices WHERE date >= ? GROUP BY symbol",
+                                             [sess[-5].date()]).fetchall()}
+    cur = cur[cur["symbol"].isin(trading)]
     info = cands.set_index("symbol")
     review = []
     for r in cur.itertuples():

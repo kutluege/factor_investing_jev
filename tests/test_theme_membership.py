@@ -102,3 +102,12 @@ def test_stage_a_only_subtheme_needs_no_keywords_but_needs_a_10k():
 def test_evidence_sentences():
     ev = evidence_sentences("First line. We build industrial robots for cars. Unrelated.", ["industrial robot"])
     assert ev == ["We build industrial robots for cars."]
+
+
+def test_blank_check_filing_gives_no_membership():
+    from src.themes.membership import is_blank_check
+    spac = "We are a blank check company incorporated for the purpose of a business combination. " + robot_text(9)
+    assert is_blank_check(spac)
+    assert not is_blank_check("We were formerly a blank check company; we now build industrial robots.")
+    rows = membership_rows("SPAC", "9", ROBO_STAGE_A, [filing("s1", "2021-02-10T15:00:00.000Z", spac)], CFG, SESSIONS)
+    assert rows == []

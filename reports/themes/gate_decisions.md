@@ -55,3 +55,34 @@ Aynı çalışmada EDGAR `acceptanceDateTime` alanının UTC olduğu doğruland�
 doldurulamazdı (⌊3,5⌋ = 3 + 3 = 6). Yorum: tavan = ⌈0,5 × n_picks⌉ ve yalnızca sıralamada en az iki alt tema
 varsa uygulanır. Kod: `src/portfolio/rebalance.py::select_theme`; testler `tests/test_theme_backtest.py`.
 Bu, ön kayıttan önce yapılan bir uygulama netleştirmesidir; yapılandırma değeri değişmedi.
+
+## Kapı 2 — T3r: sınıflandırma isabeti (2026-09-30, sonuç görülmeden)
+
+Otomatik inceleme: güncel üyelerden alt tema tabakalı 120 firma; etiket = FMP şirket açıklaması + sanayisinin alt temayı
+bağımsız olarak doğrulaması (FMP açıklaması yalnızca doğrulama etiketi, backtest üyeliğinde kullanılmaz).
+
+| Koşu | İsabet | En zayıf alt temalar |
+|---|---|---|
+| İlk (themes_v1 taslağı) | **%83,3** (< %85) | autonomous_drone %41,7, surgical_medical %70, industrial_automation %75 |
+| Tek revizyon sonrası | **%91,7** (≥ %85, geçti) | surgical_medical %71,4, autonomous_drone %75 |
+
+Hataların incelemesi (`research/themes/membership_review_labeled.csv`): (a) 6 hata SPAC'lerdi; bunların 4'ü aslında
+birleşme sonrası şirketle aynı CIK'i paylaşan emekli SPAC sembolleriydi (PSAC→FFIE, CLAQ→Nauticus Robotics,
+SVFC→Symbotic, DEH→Vicarious Surgical) — üyelik metni doğru şirketi anlatıyor, doğrulayıcı ise eski sembolün
+"Shell Companies" profiline bakıyordu; (b) autonomous_drone'da düşük isabetli yanlış pozitifler (otonom sürüşten
+geçerken bahseden EV üreticileri vb.); (c) doğrulayıcının kendi hataları (ör. Globus Medical gerçekten cerrahi robot
+satıyor).
+
+**Tek revizyon (THEMES_SPEC §3; getiriye bakılmadan):**
+1. SPAC kuralı: 10-K'nın kendi Item 1 metni şirketi "blank check company" olarak tanımlıyorsa o dosyadan üyelik yok
+   (metin tabanlı → PIT). 13.623 metnin 211'i kurala takıldı.
+2. `autonomous_drone.min_hits`: 5 → 10 (anahtar kelimeler değişmedi).
+3. İnceleme örneklemi düzeltmesi (sınıflandırma değişikliği değil): yalnızca hâlâ işlem gören semboller incelenir;
+   emekli SPAC sembolleri CIK üzerinden birleşme sonrası 10-K'ları devralıyordu. Backtest etkilenmez (o sembollerin
+   birleşme sonrası fiyatı yok).
+
+İsabet artışının bir kısmı (3) numaralı örneklem düzeltmesinden gelir; bu açıkça not edilir.
+
+**Kapsam uyarısı (getiri değil, sayı):** robotik teması incedir — güncel 46 üye; components, surgical_medical ve
+grid_equipment alt temaları hiçbir ayda 15 firmaya ulaşmıyor; bu alt temalar araştırma modülünde ayrı kapsam olarak
+raporlanmaz (n < 15), tema düzeyinde kalır.

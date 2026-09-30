@@ -83,6 +83,16 @@ def choose_primary(qualifying: list[dict], cfg: ThemesConfig) -> dict | None:
                                              -q["density"], order.get((q["theme"], q["subtheme"]), 999)))[0]
 
 
+_BLANK_CHECK = re.compile(r"(?i)\b(?:we are|the company is|is)\s+a\s+(?:newly\s+(?:incorporated|organized)\s+)?"
+                          r"blank[\s-]+check\s+compan(?:y|ies)")
+
+
+def is_blank_check(item1: str) -> bool:
+    """Gate 2 revision (docs/CHANGELOG_THEMES.md): the filing's own Item 1 says the filer is a blank check company
+    (SPAC). Text of the filing itself, hence point in time."""
+    return bool(item1) and bool(_BLANK_CHECK.search(item1[:20000]))
+
+
 def membership_rows(symbol: str, cik: str, stage_a: list[dict], filings: list[dict], cfg: ThemesConfig,
                     sessions: pd.DatetimeIndex) -> list[dict]:
     """Membership rows for one company. ``filings``: dicts with accession, acceptance, item1 (text), item1_words,
@@ -96,6 +106,8 @@ def membership_rows(symbol: str, cik: str, stage_a: list[dict], filings: list[di
         vt = min(starts[i + 1], cap) if i + 1 < len(starts) else cap
         if vt <= vf:
             continue
+        if is_blank_check(f.get("item1", "")):
+            continue  # SPAC shell: its 10-K describes a (prospective) target, not its own business
         qualifying = []
         for m in stage_a:
             sub = cfg.themes[m["theme"]].subthemes[m["subtheme"]]
