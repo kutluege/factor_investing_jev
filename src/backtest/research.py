@@ -132,6 +132,13 @@ class Researcher:
             return mid
         t0 = time.perf_counter()
         res = self.bt.run(cfg)
+        # keep only what the analyses need (equity curve + trades); per-day holdings/signal frames of hundreds of
+        # configurations would otherwise dominate memory. The selected model is re-run in full afterwards.
+        res.signals = pd.DataFrame()
+        res.holdings = pd.DataFrame()
+        res.rankings = pd.DataFrame()
+        if not res.trades.empty:
+            res.trades = res.trades[["rebalance_date", "gross", "commission", "transaction_cost", "slippage_cost"]]
         self.configs[mid], self.results[mid] = cfg, res
         log.info("research: %s %d configs done (%s %s N=%d w=%s buf=%s jev=%s) %.1fs", stage, len(self.results),
                  cfg.preset, int(cfg.min_market_cap / 1e6), cfg.portfolio_size, cfg.weighting, cfg.hold_buffer,

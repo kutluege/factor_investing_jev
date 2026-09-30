@@ -178,13 +178,13 @@ def generate(con: duckdb.DuckDBPyConnection, tasks: list[JevTask], purpose: str 
         async with client.async_client() as http:
             async def one(key: str, task: JevTask) -> None:
                 async with sem:
-                    before = client.http_requests
                     try:
                         res = await client.aevaluate(http, task.state, qset.questions)
                         _insert_decision(con, decision_id=str(uuid.uuid4()), key=key, fsid=fsid, task=task,
                                          purpose=purpose, model=model, qset=qset, result=res, error=None)
                         stats.completed += 1
                         stats.retries += res.retry_count
+                        stats.http_requests += res.retry_count + 1  # per-task count (safe under concurrency)
                         stats.latencies.append(res.latency_ms)
                         stats.input_tokens += int(res.usage.get("inputTokens") or 0)
                         stats.output_tokens += int(res.usage.get("outputTokens") or 0)
@@ -195,11 +195,11 @@ def generate(con: duckdb.DuckDBPyConnection, tasks: list[JevTask], purpose: str 
                                          purpose=purpose, model=model, qset=qset, result=None, error=exc)
                         stats.failed += 1
                         stats.retries += getattr(exc, "retry_count", 0)
+                        stats.http_requests += getattr(exc, "retry_count", 0) + 1
                         stats.errors[exc.kind] = stats.errors.get(exc.kind, 0) + 1
                         if exc.kind in ("authentication_error", "quota_exceeded", "forbidden"):
                             raise
                     finally:
-                        stats.http_requests += client.http_requests - before
                         if progress:
                             progress(stats)
             await asyncio.gather(*(one(k, t) for k, t in todo))
