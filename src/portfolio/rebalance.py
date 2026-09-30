@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import numpy as np
 import pandas as pd
 
 from src.portfolio.book import BrokerAdapter, CostModel, Fill, Order, Portfolio
@@ -99,3 +100,53 @@ def spread_cost_fn(costs_cfg: dict, spread: pd.Series, cost_multiplier: float = 
             return 0.0
         return min(cap, 0.5 * float(s) * 1e4) * cost_multiplier
     return f
+
+
+# --- theme portfolio (THEMES_SPEC §8) --------------------------------------------------------------------------------
+
+def select_theme(ranked: pd.DataFrame, held: set[str], n_picks: int, hold_buffer: float, max_subtheme_share: float,
+                 blocked: set[str], n_wait: int = 5) -> dict[str, str]:
+    """Signals for one theme on one date. ``ranked``: index symbol, columns score and subtheme (eligible members).
+
+    Held names ranked within ``hold_buffer x n_picks`` stay (HOLD); open slots are filled in score order (BUY),
+    skipping names in the entry block (top volatility) and names whose subtheme already holds
+    ceil(``max_subtheme_share`` x n_picks) of the picks (only when >= 2 subthemes are ranked). Held names outside the buffer or no longer ranked are SELL; the next
+    ``n_wait`` best names not selected are WAIT."""
+    r = ranked.dropna(subset=["score"]).sort_values("score", ascending=False)
+    rank = {s: i + 1 for i, s in enumerate(r.index)}
+    # the cap needs at least two subthemes to be meaningful (a single-subtheme theme such as biotech_all would
+    # otherwise be limited to half its picks); ceil keeps n_picks reachable with two subthemes (7 -> 4 + 3)
+    capped = r["subtheme"].nunique() >= 2
+    max_per_sub = max(1, int(np.ceil(max_subtheme_share * n_picks))) if capped else n_picks
+    signals: dict[str, str] = {}
+    keep = [s for s in r.index if s in held and rank[s] <= hold_buffer * n_picks][:n_picks]
+    for s in keep:
+        signals[s] = "HOLD"
+    per_sub = r.loc[keep, "subtheme"].value_counts().to_dict()
+    for s in r.index:
+        if len([x for x in signals.values() if x in ("HOLD", "BUY")]) >= n_picks:
+            break
+        if s in signals or s in blocked:
+            continue
+        sub = r.at[s, "subtheme"]
+        if per_sub.get(sub, 0) >= max_per_sub:
+            continue
+        signals[s] = "BUY"
+        per_sub[sub] = per_sub.get(sub, 0) + 1
+    for s in held:
+        signals.setdefault(s, "SELL")
+    waits = [s for s in r.index if s not in signals][:n_wait]
+    for s in waits:
+        signals[s] = "WAIT"
+    return signals
+
+
+def theme_targets(picks: dict[str, list[str]], theme_weights: dict[str, float], n_picks: dict[str, int],
+                  cap: float) -> pd.Series:
+    """Equal weight theme_weight / n_picks per pick, capped; unfilled slots stay in cash."""
+    w = {}
+    for t, syms in picks.items():
+        each = min(cap, theme_weights[t] / max(1, n_picks[t]))
+        for s in syms:
+            w[s] = w.get(s, 0.0) + each
+    return pd.Series(w, dtype=float)

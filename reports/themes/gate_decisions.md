@@ -47,3 +47,11 @@ yüksek korelasyonludur; regresyon (β_oil) ve trend işareti (126 seans) için 
 uyuştu (±1 gün: %90). Eşik ≥ %90 aynı gün → karşılanmadı. Karar: `ear_3d` ve `sue_announce` zamanlaması **8-K
 tarihlerinden**; FMP yalnızca gerçekleşen EPS değeri için (±3 gün eşleşme). Ayrıntı: `T4b_earnings_dates.md`.
 Aynı çalışmada EDGAR `acceptanceDateTime` alanının UTC olduğu doğrulandı ve üyelik seans kuralı düzeltildi.
+
+## Uygulama yorumu — alt tema tavanı (2026-09-30, sonuç görülmeden)
+
+`max_share_per_subtheme: 0.5` kuralı iki durumda tanımsız kalıyordu: (1) tek alt temalı bir tema (biotech yalnızca
+`biotech_all`) seçimlerinin yarısıyla sınırlanırdı; (2) tek sayılı `n_picks` (biotech 7) iki alt temayla
+doldurulamazdı (⌊3,5⌋ = 3 + 3 = 6). Yorum: tavan = ⌈0,5 × n_picks⌉ ve yalnızca sıralamada en az iki alt tema
+varsa uygulanır. Kod: `src/portfolio/rebalance.py::select_theme`; testler `tests/test_theme_backtest.py`.
+Bu, ön kayıttan önce yapılan bir uygulama netleştirmesidir; yapılandırma değeri değişmedi.

@@ -297,5 +297,121 @@ def t5_research(db: str = typer.Option(None), run_id: str = typer.Option(None)) 
     print_json("T5", {"report": str(path), "consistency": consistency, "audit": audit})
 
 
+@app.command("t6-backtest")
+def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None:
+    """T6: single fixed-config theme portfolio backtest, §8 success table and the current shortlist."""
+    import numpy as np
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT, load_config
+    from src.features.store import load_market_data
+    from src.themes.backtest import (
+        ThemeBacktester,
+        annualized,
+        equity_period_returns,
+        max_drawdown,
+        period_returns,
+        success_table,
+        theme_indices,
+    )
+    from src.themes.config import load_strict
+    from src.themes.membership import members_on
+    from src.themes.panel import load_closes, load_theme_panel
+    from src.themes.research.report import check_preregistration
+    from src.themes.scoring import score_panel
+    from src.themes.shortlist import build_shortlist, load_overrides, shortlist_markdown
+    setup_logging()
+    cfg = load_strict()
+    sha = check_preregistration(cfg.version)
+    ctx = open_context(db, progress_printer)
+    panel = load_theme_panel(ctx.con)
+    scores = score_panel(panel, cfg)
+    md_ = load_market_data(ctx.con, sorted(panel["symbol"].unique()))
+    bt = ThemeBacktester(panel, scores, cfg, md_.mats["open"], md_.mats["close"])
+    s0 = pd.Timestamp(start)
+    r1, r2 = bt.run(1.0, s0), bt.run(2.0, s0)
+    dates = [d for d in bt.dates if d >= s0]
+    haircut = float(load_config("backtest")["costs"]["delisting_haircut"])
+    idx = theme_indices(panel, md_.mats["close"], cfg, dates, haircut)
+    port, port2 = equity_period_returns(r1.equity, dates), equity_period_returns(r2.equity, dates)
+    succ = success_table(port, idx["composite"], port2, cfg.research.subperiods)
+    etfs = sorted({b for t in cfg.themes.values() for b in t.benchmarks} | {"QQQ", "SPY"})
+    ec = load_closes(ctx.con, etfs).reindex(md_.calendar)
+    bench = {e: ec[e].reindex(pd.DatetimeIndex(dates)).pct_change() for e in ec.columns}
+    # per-theme sleeves (gross, equal weight of the names held after each rebalance) vs the theme index
+    h = r1.holdings
+    sleeves = {}
+    for t in idx.columns.drop("composite"):
+        mem = {d: list(g["symbol"]) for d, g in h[h["theme"] == t].groupby("rebalance_date")}
+        sleeves[t] = period_returns(md_.mats["close"], mem, dates, haircut)
+    sl = pd.DataFrame(sleeves)
+    out = PROJECT_ROOT / "reports" / "themes"
+    frame = pd.DataFrame({"portfolio": port, "portfolio_2x_costs": port2}).join(idx, how="outer").join(
+        sl.add_prefix("sleeve_gross_"), how="left")
+    frame.to_csv(out / "T6_period_returns.csv")
+    r1.trades.to_csv(out / "T6_trades.csv", index=False)
+    c = succ["criteria"]
+
+    def line(name, r):
+        r = r.dropna()
+        return (f"| {name} | {r.index.min().date() if len(r) else '—'} | {annualized(r):.2%} | "
+                f"{r.std() * np.sqrt(12):.2%} | {max_drawdown(r):.2%} |") if len(r) else f"| {name} | — | — | — | — |"
+    md = ["# T6 — Tema portföyü backtest (themes_v1, tek sabit yapılandırma)", "",
+          f"Ön kayıt SHA256 `{sha}`. Dönem {dates[0].date()} → {dates[-1].date()} ({len(dates)} ay). Jev ağırlığı 0. "
+          "Parametre taraması yok; yapılandırma hiçbir parametre tahmin etmediği için tüm dönem örneklem dışıdır ve "
+          "ön kayıtlı alt dönemler walk-forward katmanlarının yerini tutar.",
+          "Maliyetler: mevcut model (komisyon, kayma, işlem maliyeti, Abdi–Ranaldo yarım spread); delist: son kapanış "
+          f"− %{haircut * 100:.0f}. Tema endeksleri maliyetsiz, aylık yeniden dengelenen eşit ağırlıklıdır.", "",
+          "## §8 Başarı ölçütü (ön kayıtlı; CAGR hedefi değil)", "",
+          "| Ölçüt | Değer | Sonuç |", "|---|---|---|",
+          f"| Seçim katkısı > 0 alt dönemlerin ≥ 2/3'ünde | {c['subperiods_positive']} | {'✔' if c['c1_subperiods'] else '✘'} |",
+          f"| Maks. düşüş, tema endeksinden en fazla 5 puan kötü | portföy {c['max_dd_portfolio']:.1%} / endeks "
+          f"{c['max_dd_index']:.1%} | {'✔' if c['c2_drawdown'] else '✘'} |",
+          f"| 2× maliyette seçim katkısı ≥ 0 | {c['contribution_2x_costs_ann']:+.2%}/yıl | "
+          f"{'✔' if c['c3_costs_2x'] else '✘'} |",
+          f"| **Sonuç** | seçim katkısı (tüm dönem) {c['contribution_ann']:+.2%}/yıl | "
+          f"**{'GEÇTİ' if c['passed'] else 'GEÇMEDİ'}** |", "",
+          "## Alt dönemler", "", "| Alt dönem | Ay | Portföy (yıllık) | Tema endeksi (yıllık) | Seçim katkısı |",
+          "|---|---|---|---|---|"]
+    for r in succ["subperiods"].itertuples():
+        md.append(f"| {r.subperiod} | {r.months} | {r.portfolio_ann:.2%} | {r.index_ann:.2%} | "
+                  f"{r.selection_contribution_ann:+.2%} |")
+    md += ["", "## Karşılaştırma (aylık getirilerden; ETF'ler kendi başlangıç tarihlerinden)", "",
+           "| Seri | Başlangıç | Yıllık getiri | Yıllık oynaklık | Maks. düşüş |", "|---|---|---|---|---|",
+           line("Portföy (1× maliyet)", port), line("Portföy (2× maliyet)", port2),
+           line("Bileşik tema endeksi", idx["composite"])]
+    md += [line(f"Tema endeksi: {t}", idx[t]) for t in idx.columns.drop("composite")]
+    md += [line(e, r) for e, r in bench.items()]
+    md += ["", "## Tema kolları (brüt) vs tema endeksi", "", "| Tema | Kol (yıllık) | Endeks (yıllık) | Fark |",
+           "|---|---|---|---|"]
+    for t in sl.columns:
+        a, b = annualized(sl[t]), annualized(idx[t].reindex(sl[t].dropna().index))
+        md.append(f"| {t} | {a:.2%} | {b:.2%} | {a - b:+.2%} |")
+    decision = ("Faktör seçimi canlı kullanıma girer (ROADMAP Adım 8-9)." if c["passed"] else
+                "Faktör seçimi temayı geçemedi: tema içinde geniş eşit ağırlıklı sepet (veya tema ETF'i) tutulur; "
+                "yalnızca nakit ömrü/sulandırma elemeleri korunur, TA zamanlama için kullanılır (ROADMAP Adım 7).")
+    md += ["", "## Karar", "", decision, "",
+           f"İşlem sayısı: {len(r1.trades)}; dosyalar: `T6_period_returns.csv`, `T6_trades.csv`."]
+    (out / "T6_backtest.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    # shortlist for the latest rebalance date (holdings before it = after the previous rebalance)
+    last = bt.dates[-1]
+    prev = [d for d in bt.dates if d < last][-1]
+    held = {r.symbol: r.theme for r in h[h["rebalance_date"] == prev].itertuples()}
+    cross = bt.cross[last]
+    ev = members_on(membership_frame_full(ctx.con), last).drop_duplicates("symbol").set_index("symbol")
+    sl_df = build_shortlist(cross, cfg, held, ev, load_overrides())
+    sl_df.to_csv(out / f"shortlist_{last.date()}.csv", index=False)
+    (out / f"shortlist_{last.date()}.md").write_text(shortlist_markdown(sl_df, last, cfg), encoding="utf-8")
+    print_json("T6", {"criteria": c, "shortlist": str(out / f"shortlist_{last.date()}.md")})
+
+
+def membership_frame_full(con):
+    import pandas as pd
+    m = con.execute("SELECT symbol, theme, subtheme, valid_from, valid_to, method, hits, matched, filing_accession "
+                    "FROM theme_membership").df()
+    m["valid_from"], m["valid_to"] = pd.to_datetime(m["valid_from"]), pd.to_datetime(m["valid_to"])
+    return m
+
+
 if __name__ == "__main__":
     app()
