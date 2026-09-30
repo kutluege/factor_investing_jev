@@ -250,5 +250,52 @@ def t5a_french() -> None:
     console.print(f"wrote {out}")
 
 
+@app.command("t5-preregister")
+def t5_preregister() -> None:
+    """T5: copy config/themes.yaml to research/preregistration/<version>.yaml + SHA256 (commit before t5-research)."""
+    from src.themes.config import load_strict
+    from src.themes.research.report import preregister
+    cfg = load_strict()
+    path, sha = preregister(cfg.version)
+    print_json("T5 preregistration", {"file": str(path), "sha256": sha, "next": "git add + commit, then t5-research"})
+
+
+@app.command("t5-research")
+def t5_research(db: str = typer.Option(None), run_id: str = typer.Option(None)) -> None:
+    """T5: research module §7.1-§7.9 on theme_feature_panel -> reports/themes/<run_id>/factor_explain.md + CSVs."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT
+    from src.data.french import french_monthly
+    from src.data.prices import load_prices
+    from src.themes.config import load_strict
+    from src.themes.panel import load_closes, load_theme_panel, theme_lookahead_audit
+    from src.themes.research.report import check_preregistration, write_report
+    from src.themes.research.run import mom_consistency, run_research
+    from src.themes.scoring import score_panel
+    setup_logging()
+    cfg = load_strict()
+    sha = check_preregistration(cfg.version)
+    ctx = open_context(db, progress_printer)
+    audit = theme_lookahead_audit(ctx.con)
+    if not audit["passed"]:
+        console.print(f"[red]look-ahead audit failed: {audit}[/]")
+        raise typer.Exit(1)
+    fmp, _ = make_clients(ctx)
+    load_prices(ctx.con, fmp, ["^VIX"])
+    closes = load_closes(ctx.con, ["SPY", "^VIX"])
+    panel = load_theme_panel(ctx.con)
+    scores = score_panel(panel, cfg)
+    run_id = run_id or f"{cfg.version}_{pd.Timestamp.now():%Y%m%d_%H%M}"
+    out = PROJECT_ROOT / "reports" / "themes" / run_id
+    tables = run_research(panel, scores, cfg, french_monthly(), closes["SPY"], closes.get("^VIX"), out)
+    consistency = mom_consistency(ctx.con, PROJECT_ROOT / "docs" / "FACTOR_IC.md")
+    el = panel[panel["eligible"] & (panel["rebalance_date"] >= pd.Timestamp(cfg.research.subperiods[0][0]))]
+    meta = {"start": el["rebalance_date"].min().date(), "end": el["rebalance_date"].max().date(),
+            "dates": el["rebalance_date"].nunique(), "rows": len(el)}
+    path = write_report(tables, out, run_id, sha, audit, consistency, meta)
+    print_json("T5", {"report": str(path), "consistency": consistency, "audit": audit})
+
+
 if __name__ == "__main__":
     app()

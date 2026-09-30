@@ -118,6 +118,8 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
         feats, mcap = compute_fundamental_features(snap, cross["raw_close"], splits, d)
         f = cross.join(feats, how="left")
         f["market_cap"] = mcap.reindex(f.index)
+        f["fundamental_availability_date"] = snap["availability_date"].reindex(f.index)             if "availability_date" in snap else pd.NaT
+        f["membership_valid_from"] = mem["valid_from"].reindex(f.index)
         f["theme"] = mem["theme"].reindex(f.index)
         f["subtheme"] = mem["subtheme"].reindex(f.index)
         f["stage"] = stage_flags(f["ocf_ttm"], f["revenue_ttm"], f["theme"], cfg.stage.biotech_commercial_revenue_usd)
@@ -175,6 +177,20 @@ def persist_theme_panel(con: duckdb.DuckDBPyConnection, panel: pd.DataFrame) -> 
         con.execute(f"CREATE OR REPLACE TABLE {PANEL_TABLE} AS SELECT * FROM _tp")
     finally:
         con.unregister("_tp")
+
+
+def theme_lookahead_audit(con: duckdb.DuckDBPyConnection) -> dict:
+    """Counts panel rows that used information not yet available on the rebalance date (must all be zero)."""
+    q = f"SELECT count(*) FROM {PANEL_TABLE} WHERE "
+    fund = con.execute(q + "CAST(fundamental_availability_date AS DATE) > rebalance_date").fetchone()[0]
+    mem = con.execute(q + "CAST(membership_valid_from AS DATE) > rebalance_date").fetchone()[0]
+    snaps = con.execute("SELECT count(*) FROM fundamental_snapshots WHERE availability_date > snapshot_date"
+                        ).fetchone()[0]
+    ev = 0
+    if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'earnings_events'").fetchone()[0]:
+        ev = con.execute("SELECT count(*) FROM earnings_events WHERE available_from <= t0").fetchone()[0]
+    return {"future_fundamentals": int(fund), "future_membership": int(mem), "future_snapshots": int(snaps),
+            "events_available_before_announcement": int(ev), "passed": fund == 0 and mem == 0 and snaps == 0 and ev == 0}
 
 
 def load_theme_panel(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:

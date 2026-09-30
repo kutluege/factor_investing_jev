@@ -115,3 +115,18 @@ def test_theme_panel_leakage_truncation(built):
     a = full[full["rebalance_date"] == d].set_index("symbol")[feat].sort_index()
     b = trunc.set_index("symbol")[feat].sort_index()
     pd.testing.assert_frame_equal(a, b, check_dtype=False, atol=1e-10, rtol=1e-8)
+
+
+def test_theme_lookahead_audit_passes_and_detects(built):
+    from src.themes.panel import theme_lookahead_audit
+    con = built["con"]
+    assert theme_lookahead_audit(con)["passed"]
+    con.execute("CREATE TABLE tp_backup AS SELECT * FROM theme_feature_panel")
+    try:
+        con.execute("UPDATE theme_feature_panel SET membership_valid_from = rebalance_date + INTERVAL 5 DAY "
+                    "WHERE symbol = (SELECT min(symbol) FROM theme_feature_panel)")
+        assert not theme_lookahead_audit(con)["passed"]
+    finally:
+        con.execute("DELETE FROM theme_feature_panel")
+        con.execute("INSERT INTO theme_feature_panel SELECT * FROM tp_backup")
+        con.execute("DROP TABLE tp_backup")
