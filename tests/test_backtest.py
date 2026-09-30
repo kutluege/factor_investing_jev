@@ -148,3 +148,19 @@ def test_distress_delisting_gets_haircut_merger_does_not():
     hc = delisting_haircuts(close, None, {"delisting_haircut": 0.0, "distress_haircut": 0.3, "distress_price": 2.0,
                                           "distress_drawdown": 0.6})
     assert hc["MERGED"] == 0.0 and hc["BUST"] == 0.3 and "LIVE" not in hc
+
+
+def test_research_results_are_resumable(tmp_path, monkeypatch):
+    """A killed research run resumes from per-configuration results cached on disk (no re-simulation)."""
+    from src.backtest.folds import walk_forward_folds
+    from src.backtest.research import Researcher
+    cache, o, c = world()
+    bt = Backtester(cache, o, c, initial_capital=10_000)
+    folds = walk_forward_folds(cache.dates, c.index[-1], 1, 1, 0, 0)
+    r1 = Researcher(bt, folds, {}, jev_available=False, cache_dir=tmp_path)
+    mid = r1.evaluate(cfg(), "stage1")
+    calls = []
+    monkeypatch.setattr(bt, "run", lambda *a, **k: calls.append(1))
+    r2 = Researcher(bt, folds, {}, jev_available=False, cache_dir=tmp_path)
+    assert r2.evaluate(cfg(), "stage1") == mid and not calls
+    pd.testing.assert_series_equal(r2.results[mid].equity, r1.results[mid].equity)

@@ -15,7 +15,7 @@ from src.backtest.folds import walk_forward_folds
 from src.backtest.metrics import information_coefficients, performance, quantile_spreads
 from src.backtest.research import Researcher, summarize_folds
 from src.backtest.validation import deflated_sharpe, ew_universe_benchmark, monthly_returns_matrix, pbo_cscv
-from src.config import all_configs, load_config
+from src.config import PROJECT_ROOT, all_configs, load_config, stable_hash
 from src.db.repo import utcnow
 from src.db.schema import upsert_df
 from src.features.store import load_labels, load_market_data, load_panel
@@ -174,7 +174,10 @@ def run_research(ctx: Context, max_configs: int | None = None, sensitivity: bool
         bench["EW_universe"] = ew
     ctx.step("research", f"{len(cache.dates)} rebalance dates, {len(folds)} folds, Jev features: "
                          f"{'yes (' + fsid + ')' if jev_ok else 'no'}")
-    researcher = Researcher(bt, folds, bench, jev_available=jev_ok, max_configs=max_configs)
+    fingerprint = stable_hash([data_snapshot(ctx.con), cfgs, fsid if jev_ok else None, git_commit()], 16)
+    cache_dir = PROJECT_ROOT / "data" / "cache" / "research" / fingerprint
+    ctx.step("research", f"result cache {cache_dir} (resumable)")
+    researcher = Researcher(bt, folds, bench, jev_available=jev_ok, max_configs=max_configs, cache_dir=cache_dir)
     inc = current_incumbent(ctx.con)
     rr = researcher.run_all(sensitivity=sensitivity)
     inc_id = None

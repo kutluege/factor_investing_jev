@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import logging
+import pickle
 import random
 import time
 from collections import Counter
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -114,8 +116,13 @@ class ResearchResult:
 
 class Researcher:
     def __init__(self, backtester: Backtester, folds: list[Fold], bench: dict[str, pd.Series], jev_available: bool,
-                 max_configs: int | None = None):
+                 max_configs: int | None = None, cache_dir: Path | None = None):
         self.bt = backtester
+        # Resumability: each configuration's result is written here as soon as it is computed. The directory is
+        # keyed by a fingerprint of the data snapshot + all configs + Jev feature set, so stale results never mix.
+        self.cache_dir = cache_dir
+        if cache_dir is not None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
         self.folds = folds
         self.bench = bench
         self.cfg = load_config("backtest")
@@ -131,6 +138,13 @@ class Researcher:
         if mid in self.results:
             return mid
         t0 = time.perf_counter()
+        cached = self._load_cached(mid)
+        if cached is not None:
+            self.configs[mid], self.results[mid] = cfg, cached
+            self.fm[mid] = fold_metrics(cached.equity, cached.trades, self.folds)
+            self.stage[mid] = stage
+            log.info("research: %s %d configs done (cached %s)", stage, len(self.results), mid)
+            return mid
         res = self.bt.run(cfg)
         # keep only what the analyses need (equity curve + trades); per-day holdings/signal frames of hundreds of
         # configurations would otherwise dominate memory. The selected model is re-run in full afterwards.
@@ -140,12 +154,35 @@ class Researcher:
         if not res.trades.empty:
             res.trades = res.trades[["rebalance_date", "gross", "commission", "transaction_cost", "slippage_cost"]]
         self.configs[mid], self.results[mid] = cfg, res
+        self._store_cached(mid, res)
         log.info("research: %s %d configs done (%s %s N=%d w=%s buf=%s jev=%s) %.1fs", stage, len(self.results),
                  cfg.preset, int(cfg.min_market_cap / 1e6), cfg.portfolio_size, cfg.weighting, cfg.hold_buffer,
                  cfg.jev_weight, time.perf_counter() - t0)
         self.fm[mid] = fold_metrics(res.equity, res.trades, self.folds)
         self.stage[mid] = stage
         return mid
+
+    def _cache_path(self, mid: str) -> Path | None:
+        return None if self.cache_dir is None else self.cache_dir / f"{mid}.pkl"
+
+    def _load_cached(self, mid: str) -> BacktestResult | None:
+        path = self._cache_path(mid)
+        if path is None or not path.exists():
+            return None
+        try:
+            with open(path, "rb") as fh:
+                return pickle.load(fh)
+        except (OSError, pickle.UnpicklingError, EOFError):
+            return None
+
+    def _store_cached(self, mid: str, res: BacktestResult) -> None:
+        path = self._cache_path(mid)
+        if path is None:
+            return
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "wb") as fh:
+            pickle.dump(res, fh)
+        tmp.replace(path)
 
     def _jev_weights(self) -> list[float]:
         return list(self.cfg["search"]["jev_weights"]) if self.jev_available else [0.0]
