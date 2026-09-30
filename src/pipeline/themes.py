@@ -180,6 +180,50 @@ def t4b_events(db: str = typer.Option(None), workers: int = 4) -> None:
     print_json("T4b events", build_earnings_events(ctx.con, fmp, sec, cands, sessions(ctx.con), workers))
 
 
+@app.command("t4-panel")
+def t4_panel(db: str = typer.Option(None)) -> None:
+    """T4: build theme_feature_panel (PIT members x month-ends) and write a coverage report."""
+    from src.config import PROJECT_ROOT
+    from src.data.prices import load_prices
+    from src.features.theme_features import OIL_SYMBOL
+    from src.themes.config import KNOWN_FACTORS, load_strict
+    from src.themes.earnings import load_events
+    from src.themes.panel import build_theme_panel
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    cfg = load_strict()
+    fmp, _ = make_clients(ctx)
+    load_prices(ctx.con, fmp, [OIL_SYMBOL])
+    has_ev = ctx.con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'earnings_events'"
+                             ).fetchone()[0]
+    events = load_events(ctx.con) if has_ev else None
+    panel = build_theme_panel(ctx.con, cfg, events=events)
+    el = panel[panel["eligible"]]
+    counts = el.groupby(["rebalance_date", "theme"]).size().unstack(fill_value=0)
+    minimum = cfg.research.min_names_per_date
+    md = ["# T4 — Tema özellik paneli (`theme_feature_panel`)", "",
+          f"Satır: {len(panel)}, uygun (eligible): {len(el)}, tarih: {panel['rebalance_date'].nunique()} "
+          f"({panel['rebalance_date'].min().date()} → {panel['rebalance_date'].max().date()}).", "",
+          "## Tema başına uygun firma sayısı (aylık)", "", "| Tema | Ortalama | Min | Maks | n<15 olan ay |",
+          "|---|---|---|---|---|"]
+    for t in counts.columns:
+        s = counts[t]
+        md.append(f"| {t} | {s.mean():.1f} | {s.min()} | {s.max()} | {(s < minimum).sum()} |")
+    md += ["", "## Faktör kapsamı (uygun satırlarda dolu oran)", "", "| Faktör | " + " | ".join(counts.columns) + " |",
+           "|---|" + "---|" * len(counts.columns)]
+    for f in sorted(KNOWN_FACTORS):
+        if f in el:
+            cov = el.groupby("theme")[f].apply(lambda s: s.notna().mean())
+            md.append(f"| `{f}` | " + " | ".join(f"{cov.get(t, 0):.0%}" for t in counts.columns) + " |")
+    md += ["", "## Aşama dağılımı (uygun satırlar)", "", "| Tema | Aşama | Satır |", "|---|---|---|"]
+    md += [f"| {t} | {s} | {n} |" for (t, s), n in el.groupby(["theme", "stage"]).size().items()]
+    md += ["", "Etiketler (`label_fwd_<h>`, `label_fwd_<h>_theme`) yalnızca araştırma hedefidir; skorlama okumaz."]
+    out = PROJECT_ROOT / "reports" / "themes" / "T4_panel.md"
+    out.write_text("\n".join(md) + "\n", encoding="utf-8")
+    print_json("T4 panel", {"rows": len(panel), "eligible": len(el), "events": bool(events)})
+    console.print(f"wrote {out}")
+
+
 @app.command("t5a-french")
 def t5a_french() -> None:
     """T5a: download/cache Kenneth French FF3, FF5, MOM, RF (monthly) and report coverage."""

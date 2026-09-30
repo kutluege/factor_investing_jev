@@ -130,6 +130,21 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
     min_mcap, min_adv = min(bt["market_caps"]), min(bt["adv_thresholds"])
     delisted = dict(zip(secs["symbol"], pd.to_datetime(secs["delisted_date"]), strict=False))
     ipo = dict(zip(secs["symbol"], pd.to_datetime(secs["ipo_date"]), strict=False))
+    panel["exclusion_reason"] = exclusion_reasons(panel, delisted, ipo, ucfg["min_history_days"], ucfg["min_price"],
+                                                  min_mcap, min_adv)
+    panel["base_eligible"] = panel["exclusion_reason"].isna()
+    panel = panel.replace([np.inf, -np.inf], np.nan)
+
+    if persist:
+        persist_features(con, panel)
+        persist_labels(con, md, dates, syms)
+    return panel
+
+
+def exclusion_reasons(panel: pd.DataFrame, delisted: dict, ipo: dict, min_history: int, min_price: float,
+                      min_mcap: float, min_adv: float) -> list[str | None]:
+    """First failing eligibility rule per (rebalance_date, symbol) row, or None when eligible. ``panel`` needs
+    symbol, rebalance_date, history_days, traded_close, market_cap, adv20."""
     reasons = []
     for r in panel.itertuples():
         reason = None
@@ -138,9 +153,9 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
             reason = "delisted"
         elif pd.notna(ip) and ip > r.rebalance_date:
             reason = "not yet listed"
-        elif r.history_days < ucfg["min_history_days"]:
+        elif r.history_days < min_history:
             reason = "insufficient history"
-        elif pd.isna(r.traded_close) or r.traded_close < ucfg["min_price"]:
+        elif pd.isna(r.traded_close) or r.traded_close < min_price:
             reason = "price below minimum"
         elif pd.isna(getattr(r, "market_cap", np.nan)):
             reason = "market cap unavailable"
@@ -149,14 +164,7 @@ def build_features(con: duckdb.DuckDBPyConnection, dates: list[pd.Timestamp] | N
         elif pd.isna(r.adv20) or r.adv20 < min_adv:
             reason = "ADV20 below base threshold"
         reasons.append(reason)
-    panel["exclusion_reason"] = reasons
-    panel["base_eligible"] = panel["exclusion_reason"].isna()
-    panel = panel.replace([np.inf, -np.inf], np.nan)
-
-    if persist:
-        persist_features(con, panel)
-        persist_labels(con, md, dates, syms)
-    return panel
+    return reasons
 
 
 def split_factors(splits: pd.DataFrame, symbols: pd.Series, dates: pd.Series) -> pd.Series:
