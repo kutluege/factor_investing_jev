@@ -84,7 +84,8 @@ def build_candidates(con: duckdb.DuckDBPyConnection, fmp: FmpClient, sec: SecCli
         for ex in cfg.universe.exchanges:
             rows += fmp.company_screener(exchange=ex, isEtf=False, isFund=False, isActivelyTrading=True)
         inventory = pd.DataFrame(rows)
-    inv = inventory.rename(columns={"exchangeShortName": "exchange"})
+    # the screener returns both "exchange" (full name) and "exchangeShortName" (code): keep the code only
+    inv = inventory.drop(columns=["exchange"], errors="ignore").rename(columns={"exchangeShortName": "exchange"})
     inv = inv[inv["exchange"].isin(exch)]
     cik_map = {str(r["ticker"]).upper(): str(r["cik"]).zfill(10) for r in sec.company_tickers_exchange()}
     records: dict[str, dict] = {}

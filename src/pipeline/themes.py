@@ -51,9 +51,6 @@ def t0_inventory(db: str = typer.Option(None), skip_sic: bool = False) -> None:
         console.print(miss[["theme", "subtheme", "configured", "closest"]].to_string(index=False))
 
 
-if __name__ == "__main__":
-    app()
-
 
 THEME_BENCHMARKS_EXTRA = ["QQQ", "SPY"]
 
@@ -110,3 +107,40 @@ def t1_universe(db: str = typer.Option(None), skip_data: bool = False) -> None:
     out.write_text("\n".join(md) + "\n", encoding="utf-8")
     print_json("T1", rep)
     console.print(f"wrote {out}")
+
+
+@app.command("t2-item1")
+def t2_item1(db: str = typer.Option(None), workers: int = 6, since: str = "2009-01-01",
+             limit: int = typer.Option(None, help="only the first N companies (sample run)")) -> None:
+    """T2: fetch and cache 10-K Item 1 text for candidates whose subthemes use keywords."""
+    from src.themes.tasks import run_t2
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    _, sec = make_clients(ctx)
+    print_json("T2", run_t2(ctx, sec, workers, since, limit))
+
+
+@app.command("t3-membership")
+def t3_membership(db: str = typer.Option(None)) -> None:
+    """T3: point-in-time theme membership, review CSV and theme-date firm counts."""
+    from src.themes.config import load_strict
+    from src.themes.tasks import run_t3
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    _, sec = make_clients(ctx)
+    print_json("T3", run_t3(ctx, sec, load_strict()))
+
+
+@app.command("t3r-review")
+def t3r_review(db: str = typer.Option(None), n: int = 120) -> None:
+    """T3r (Gate 2): label a stratified sample of current members with FMP profile descriptions."""
+    from src.themes.config import load_strict
+    from src.themes.tasks import run_t3r
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    fmp, _ = make_clients(ctx)
+    print_json("T3r", run_t3r(ctx, fmp, load_strict(), n))
+
+
+if __name__ == "__main__":
+    app()

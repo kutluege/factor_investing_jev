@@ -45,3 +45,36 @@ def test_foreign_filer_uses_latest_annual_report():
     assert not is_foreign_filer(sub(["10-Q", "10-K", "20-F"]))  # switched to domestic filing
     assert is_foreign_filer(sub(["40-F"]))
     assert not is_foreign_filer(sub(["8-K"]))
+
+
+def test_build_candidates_handles_screener_exchange_columns(tmp_path):
+    """The FMP screener returns both 'exchange' (full name) and 'exchangeShortName' (code)."""
+    import httpx
+    import pandas as pd
+
+    from src.data.fmp import FmpClient
+    from src.data.http import RawCache
+    from src.data.sec import SecClient
+    from src.db.schema import connect
+    from src.themes.universe import build_candidates
+
+    def fmp_handler(req):
+        return httpx.Response(200, json=[])
+
+    def sec_handler(req):
+        if req.url.path.endswith("company_tickers_exchange.json"):
+            return httpx.Response(200, json={"fields": ["cik", "name", "ticker", "exchange"],
+                                             "data": [[1, "Robo Inc", "ROBO", "NYSE"], [2, "Amex Co", "AMXX", "NYSE"]]})
+        return httpx.Response(200, json={"sic": "3569", "filings": {"recent": {"form": ["10-K"]}}})
+    cache = RawCache(tmp_path / "raw")
+    fmp = FmpClient(api_key="k", transport=httpx.MockTransport(fmp_handler), cache=cache)
+    sec = SecClient(user_agent="t t@e.com", transport=httpx.MockTransport(sec_handler), cache=cache)
+    inv = pd.DataFrame([
+        {"symbol": "ROBO", "companyName": "Robo Inc", "exchange": "New York Stock Exchange",
+         "exchangeShortName": "NYSE", "country": "US", "sector": "Industrials", "industry": "Industrial - Machinery"},
+        {"symbol": "AMXX", "companyName": "Amex Co", "exchange": "NYSE American", "exchangeShortName": "AMEX",
+         "country": "US", "sector": "Industrials", "industry": "Industrial - Machinery"}])
+    con = connect(":memory:")
+    rep = build_candidates(con, fmp, sec, load_themes_config(), inventory=inv)
+    got = con.execute("SELECT symbol, exchange, sic FROM theme_candidates").fetchall()
+    assert got == [("ROBO", "NYSE", 3569)] and rep["candidates"] == 1  # NYSE American excluded
