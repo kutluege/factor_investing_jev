@@ -42,3 +42,16 @@ USD dışı XBRL raporlayanlar (ör. Enbridge).
 **Aşırı uyum ölçümü (gizlenmez):** tasarım penceresi 2011-07→2020-12'de seçim, 2021-01→2026-09 dokunulmamış
 tutma dönemi, yıllık iç içe walk-forward yeniden seçim, tüm denemeler üzerinde CSCV PBO, deneme sayısıyla deflated
 Sharpe; tüm denemeler kaydedilir. Tek temiz örneklem dışı kanıt 2026-10'dan itibaren ileri (gölge) takip olacaktır.
+
+## themes_v2 — sonuç (2026-10-01; ön kayıt SHA256 `62db0364…`, arama izi)
+
+Kapsam: 7 tema / 23 alt tema, çoklu tema üyeliği, şirket başına tek liste (aynı CIK'li imtiyazlı/borçlanma
+araçları elendi). Veri düzeltmeleri: düzeltilmiş fiyat kırılmaları (40 sembol), etiket hata koruması, USD XBRL'i
+olmayan firmalar, nakit RF.
+
+Arama (500 deneme, faktör listesi sabit): seçilen yapılandırma kalite ×4 / değer ×2, λ 0,74, üst %20, üç ayda bir,
+en oynak %10 bloklu. Tam backtest: §8 GEÇTİ (3/3 alt dönem, düşüş −24,7% vs −28,3%, 2× maliyette +1,43%/yıl);
+seçim katkısı +1,46%/yıl, IR 0,19, NW t 0,76 (anlamlı değil). Tutma dönemi (2021→) +2,26%/yıl, IR 0,28 (seçimde
+kullanılmadı). Yıllık yeniden seçimli iç içe walk-forward IR −0,05. PBO %17, DSR 0,09. Yorum: sağlam bulgu düşük
+devir/maliyetin önemi; hisse seçimi alfası istatistiksel olarak kanıtlanmadı. Tutma dönemindeki artı kısmen
+AI/yarı iletken bütçe ağırlığından (2021–26 AI dönemi). İleri takip 2026-09-30'da donduruldu; değerlendirme 2029-10.

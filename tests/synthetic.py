@@ -148,7 +148,10 @@ def _company_facts(c: Company, rng, first_year: int, today: pd.Timestamp) -> dic
                             ("CashAndCashEquivalentsAtCarryingValue", assets * 0.15), ("LongTermDebt", assets * 0.2),
                             ("LiabilitiesCurrent", assets * 0.15), ("AssetsCurrent", assets * 0.35)):
                 concepts[name].append({"end": str(qe.date()), "val": v, **base})
-            dei.append({"end": str((filed - pd.Timedelta(days=10)).date()), "val": shares, **base})
+            cover = filed - pd.Timedelta(days=10)
+            # cover-page shares are as of the cover date: post-split if the split happened before it
+            dei_shares = c.shares * (2.0 if c.split and cover >= c.split[0] else 1.0)
+            dei.append({"end": str(cover.date()), "val": dei_shares, **base})
     return {"cik": c.cik, "entityName": f"{c.symbol} Corp", "facts": {
         "us-gaap": {k: {"units": {"shares" if "Shares" in k else "USD": v}} for k, v in concepts.items()},
         "dei": {"EntityCommonStockSharesOutstanding": {"units": {"shares": dei}}}}}

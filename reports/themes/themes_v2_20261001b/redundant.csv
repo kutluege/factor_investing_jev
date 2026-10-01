@@ -1,0 +1,39 @@
+a,b,pearson,spearman,note,scope
+droe,sue,0.3586138403245005,0.711666453775236,Spearman >> Pearson: doğrusal olmayan monoton ilişki,havuz
+ebit_ev,ocf_ev,0.7248938910373623,0.7142103378524353,,havuz
+idio_vol_60d,max_ret_21d,0.6736990518093484,0.7401708687312006,,havuz
+cash_runway_years,cop_at,0.7298581275516561,0.5898379901964339,,robotics
+droe,sue,0.5102512467381258,0.7303317500222737,Spearman >> Pearson: doğrusal olmayan monoton ilişki,robotics
+ebit_ev,ocf_ev,0.7606769070371558,0.746668982767422,,robotics
+cash_runway_years,cop_at,0.8520632573523415,0.8634203724672319,,biotech
+cash_runway_years,ebit_ev,0.5303006912039523,0.7143142534441118,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+cash_runway_years,ocf_ev,0.6346714194907573,0.8059682035310345,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+cop_at,ebit_ev,0.5407297865037682,0.763317160111088,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+cop_at,ocf_ev,0.6486072262136656,0.8483389971932151,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+ebit_ev,ocf_ev,0.8746461280691924,0.8722424052695041,,biotech
+idio_vol_60d,max_ret_21d,0.6350940139941904,0.7236980801702341,,biotech
+cash_runway_years,cop_at,0.8513251484563821,0.8766125476863659,,biotech/biotech_all
+cash_runway_years,ocf_ev,0.6179937558714979,0.7984527390219188,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+cop_at,ebit_ev,0.518202010618111,0.7552662222760428,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+cop_at,ocf_ev,0.6291611266280885,0.8430747363816529,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+ebit_ev,ocf_ev,0.8727578659801241,0.8781820295193896,,biotech/biotech_all
+idio_vol_60d,max_ret_21d,0.6244550897931174,0.7011188613801854,,biotech/biotech_all
+cash_runway_years,cop_at,0.813484829118178,0.7009655029360895,,biotech/biotech_tools
+cash_runway_years,ocf_ev,0.7440680112301806,0.6908905484612254,,biotech/biotech_tools
+cop_at,ebit_ev,0.701283037752541,0.7093954899935005,,biotech/biotech_tools
+cop_at,ocf_ev,0.7749926399892054,0.7106099539588305,,biotech/biotech_tools
+ebit_ev,ocf_ev,0.8508155339878901,0.8141376946578954,,biotech/biotech_tools
+droe,sue,0.49843841782138304,0.8105065320561234,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy
+idio_vol_60d,max_ret_21d,0.7576566681352485,0.8184136438333851,,energy
+droe,sue,0.5019565384911706,0.7896457237413178,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/oil_gas
+idio_vol_60d,max_ret_21d,0.6895406756898415,0.7329196157040321,,energy/oil_gas
+cash_runway_years,profitable_growth,0.7124864851500605,0.6225377518887094,,energy/power_utilities
+droe,sue,0.6018921612212462,0.830873186256019,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/power_utilities
+droe,sue,0.5842708196529371,0.802349283001549,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/renewables
+idio_vol_60d,max_ret_21d,0.8112452235929949,0.785418466437527,,energy/renewables
+droe,sue,0.4277097603825408,0.7450384386049411,Spearman >> Pearson: doğrusal olmayan monoton ilişki,ai
+droe,sue,0.42221569214607635,0.7211317379531919,Spearman >> Pearson: doğrusal olmayan monoton ilişki,ai/ai_infrastructure
+droe,sue,0.438215036466729,0.7035940451803747,Spearman >> Pearson: doğrusal olmayan monoton ilişki,ai/ai_software
+droe,sue,0.5594885839450994,0.8177169798985605,Spearman >> Pearson: doğrusal olmayan monoton ilişki,semiconductors
+droe,sue,0.5752630205450928,0.8173929362208523,Spearman >> Pearson: doğrusal olmayan monoton ilişki,semiconductors/semis_all
+droe,sue,0.40731186493923016,0.7312126742501338,Spearman >> Pearson: doğrusal olmayan monoton ilişki,defense_space

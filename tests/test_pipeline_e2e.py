@@ -92,7 +92,10 @@ def test_universe_membership_respects_listing_dates(e2e):
     u = con.execute("SELECT rebalance_date, symbol, base_eligible, exclusion_reason FROM rebalance_universe").df()
     u["rebalance_date"] = pd.to_datetime(u["rebalance_date"])
     ipo_rows = u[u["symbol"] == ipo.symbol]
-    assert not ipo_rows[ipo_rows["rebalance_date"] < ipo.start + pd.DateOffset(years=1)]["base_eligible"].any()
+    # eligibility needs min_history_days *sessions* of history (a business-day year is a little under 365 days)
+    min_hist = config_mod.load_config("universe")["min_history_days"]
+    first_ok = ipo.start + pd.offsets.BDay(min_hist - 1)
+    assert not ipo_rows[ipo_rows["rebalance_date"] < first_ok]["base_eligible"].any()
     gone_after = u[(u["symbol"] == gone.symbol) & (u["rebalance_date"] > gone.end)]
     assert gone_after.empty or not gone_after["base_eligible"].any()
 

@@ -48,6 +48,21 @@ uv run python -m src.pipeline.themes t7-ta-table      # TA indicator table for B
 uv run python -m src.pipeline.themes t7-ta-eval       # trade-journal evaluation (research/ta/trade_journal.csv)
 ```
 
+**themes_v2 (2026-10-01).** Seven themes (robotics, biotech incl. tools/diagnostics, energy, AI, semiconductors,
+cyber/cloud, defense/space/quantum), multi-theme membership, score-tilted broad holdings, and a free configuration
+search whose overfitting is measured (design window 2011–2020, untouched holdout 2021–2026, nested walk-forward, PBO,
+deflated Sharpe). Result: the selected configuration passes the §8 test in the exact backtest (+1.5%/yr vs the
+theme index, IR 0.19, not statistically significant; holdout +2.3%/yr), but yearly re-selection is ≈ 0 (IR −0.05)
+and DSR is 0.09 — treat it as unproven until forward tracking matures. Details: `reports/themes/v2_search/v2_search.md`.
+
+```powershell
+uv run python -m src.pipeline.tools repair-adjusted          # fix vendor breaks in adjusted closes
+uv run python -m src.pipeline.themes t1b-load-members        # data for new members only (saves FMP bandwidth)
+uv run python -m src.pipeline.themes search --trials 500     # measured free search -> reports/themes/v2_search/
+uv run python -m src.pipeline.themes forward                 # monthly: frozen v2 + v1 targets, v2 shortlist
+uv run python -m src.pipeline.themes forward-eval            # matured forward months vs the theme index
+```
+
 ---
 
 ## Results at a glance (out of sample, 2014-07 → 2026-09, after costs)

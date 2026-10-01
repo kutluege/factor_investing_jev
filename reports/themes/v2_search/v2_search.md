@@ -8,13 +8,13 @@
 |---|---|---|
 | Deneme sayısı | 500 | hepsi `trials.csv` içinde |
 | Tasarım penceresi (2011-07→2020-12) IR, seçilen | -0.02 | seçim burada yapıldı (iyimser) |
-| **Tutma dönemi (2021-01→) IR, seçilen** | **+0.36** | seçimde hiç kullanılmadı |
-| Tutma dönemi katkı (aritm., yıllık) | +2.87% | 67 ay |
+| **Tutma dönemi (2021-01→) IR, seçilen** | **+0.35** | seçimde hiç kullanılmadı |
+| Tutma dönemi katkı (aritm., yıllık) | +2.78% | 67 ay |
 | Seçilenin tutma dönemindeki yüzdelik sırası | %100 | %50 = tesadüf |
-| İç içe walk-forward IR (yıllık yeniden seçim) | -0.19 | gerçekçi tahmin, 127 ay |
-| İç içe walk-forward katkı (yıllık) | -1.68% | |
-| PBO (CSCV, tüm denemeler) | 19% | > %50: seçim kalıcı değil |
-| Deflated Sharpe (tam örneklem en iyisi) | 0.10 | < 0,95: anlamlı değil |
+| İç içe walk-forward IR (yıllık yeniden seçim) | -0.05 | gerçekçi tahmin, 127 ay |
+| İç içe walk-forward katkı (yıllık) | -0.38% | |
+| PBO (CSCV, tüm denemeler) | 17% | > %50: seçim kalıcı değil |
+| Deflated Sharpe (tam örneklem en iyisi) | 0.09 | < 0,95: anlamlı değil |
 
 ## Seçilen yapılandırma (tasarım penceresinde en yüksek IR)
 
@@ -29,13 +29,13 @@
 | Ölçü | Değer |
 |---|---|
 | §8 ölçütü (alt dönem, düşüş, 2× maliyet) | 3/3, ✔, ✔ → **GEÇTİ** |
-| Seçim katkısı (aritm., tüm dönem) | +1.49%/yıl, NW t +0.76 |
-| Takip hatası / IR | 7.65% / +0.19 |
-| 2× maliyette katkı (geom.) | +1.51%/yıl |
-| Maks. düşüş portföy / endeks | -24.5% / -28.5% |
-| Tutma dönemi (exact) katkı / IR | +2.52% / +0.32 |
-| Portföy yıllık getiri / endeks | 17.22% / 14.62% |
-| İşlem sayısı | 4866 |
+| Seçim katkısı (aritm., tüm dönem) | +1.46%/yıl, NW t +0.76 |
+| Takip hatası / IR | 7.56% / +0.19 |
+| 2× maliyette katkı (geom.) | +1.43%/yıl |
+| Maks. düşüş portföy / endeks | -24.7% / -28.3% |
+| Tutma dönemi (exact) katkı / IR | +2.26% / +0.28 |
+| Portföy yıllık getiri / endeks | 17.29% / 14.73% |
+| İşlem sayısı | 4837 |
 
 ## Karşılaştırma: themes_v1-r2 (veri düzeltmeli v1, ilk-N)
 
@@ -43,7 +43,7 @@ Aritmetik katkı -0.36%/yıl, IR -0.03, takip hatası 10.48% (bkz. `T6_backtest_
 
 ## Deneme dağılımı
 
-Tasarım IR yüzdelikleri (10/50/90): -0.78 / -0.56 / -0.33; tutma dönemi: -0.48 / -0.30 / -0.05. Tasarım ve tutma IR'ı arasındaki sıra korelasyonu: +0.26 (yakın 0 → tasarımda iyi görünen, sonra iyi kalmıyor).
+Tasarım IR yüzdelikleri (10/50/90): -0.78 / -0.55 / -0.32; tutma dönemi: -0.49 / -0.30 / -0.05. Tasarım ve tutma IR'ı arasındaki sıra korelasyonu: +0.26 (yakın 0 → tasarımda iyi görünen, sonra iyi kalmıyor).
 
 ## Yorum kuralları
 
