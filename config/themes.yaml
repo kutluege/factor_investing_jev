@@ -103,8 +103,12 @@ themes:
     subthemes:
       industrial_automation:
         fmp_industries: ["Industrial - Machinery", "Electrical Equipment & Parts",
-                         "Industrial - Specialties"]
-        sic: [3559, 3569, 3625, 3823, 3829]
+                         "Industrial - Specialties",
+                         # v2 genişletme 2 (kullanıcı isteği 2026-10-01): DE/CAT, HON, ZBRA, OMCL tipi firmalar
+                         "Agricultural - Machinery", "Conglomerates", "Communication Equipment",
+                         "Industrial - Distribution", "Computer Hardware",
+                         "Medical - Healthcare Information Services"]
+        sic: [3523, 3531, 3559, 3569, 3577, 3625, 3823, 3829]
         keywords: ["industrial robot", "robotic", "factory automation", "motion control",
                    "machine vision", "collaborative robot", "cobot",
                    "warehouse automation", "programmable logic controller",
@@ -113,7 +117,8 @@ themes:
                    "autonomous mobile robot", "humanoid", "robotic arm"]
         min_hits: 3                  # v2: 5 → 3 (aday havuzunda 22 → 47 firma)
       surgical_medical:
-        fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies"]
+        fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies",
+                         "Medical - Equipment & Services", "Medical - Specialties"]    # v2 genişletme 2
         sic: [3841, 3842, 3845]
         keywords: ["surgical robot", "robotic surgery", "robotic-assisted",
                    "robotic assisted", "robotic system", "robotic platform",
@@ -121,7 +126,8 @@ themes:
         min_hits: 3
       autonomous_drone:
         fmp_industries: ["Auto - Manufacturers", "Auto - Parts", "Aerospace & Defense",
-                         "Software - Application", "Software - Infrastructure"]
+                         "Software - Application", "Software - Infrastructure",
+                         "Agricultural - Machinery", "Security & Protection Services"]    # v2 genişletme 2
         sic: [3711, 3714, 3721, 3728, 3812, 7372]
         keywords: ["autonomous vehicle", "autonomous driving", "self-driving", "lidar",
                    "drone", "unmanned aerial", "unmanned aircraft", "robotaxi",
@@ -129,7 +135,7 @@ themes:
         min_hits: 10                 # Kapı 2 revizyonu (2026-09-30): 5 → 10, bkz. docs/CHANGELOG_THEMES.md
       components:
         fmp_industries: ["Semiconductors", "Hardware, Equipment & Parts",
-                         "Electrical Equipment & Parts"]
+                         "Electrical Equipment & Parts", "Computer Hardware"]    # v2 genişletme 2
         sic: [3621, 3674, 3679, 3825, 3829]
         keywords: ["robot"]        # "robotic", "robotics" da eşleşir
         min_hits: 5                # v2: 8 → 5 (aday havuzunda ~10 → 22 firma); genel çip firmaları hâlâ elenir
@@ -142,10 +148,17 @@ themes:
     split: stage                   # clinical vs commercial ayrı faktör seti
     subthemes:
       biotech_all:
-        fmp_industries: ["Biotechnology", "Drug Manufacturers - Specialty & Generic"]
+        fmp_industries: ["Biotechnology", "Drug Manufacturers - Specialty & Generic",
+                         "Drug Manufacturers - General", "Medical - Pharmaceuticals"]    # v2 genişletme 2
         sic: [2834, 2835, 2836, 8731]
         keywords: []               # sanayi/SIC yeterli
         min_hits: 0
+      biotech_tools:               # v2 genişletme 2: yaşam bilimi araçları ve tanı (TMO, DHR, ILMN, NTRA, A, RVTY)
+        fmp_industries: ["Medical - Diagnostics & Research"]
+        sic: [2835, 3826, 8071]
+        keywords: ["genomic", "sequencing", "life science", "drug discovery", "biopharma", "bioprocessing",
+                   "cell and gene therapy", "molecular diagnostic", "biomarker"]
+        min_hits: 3
 
   energy:
     enabled: true
