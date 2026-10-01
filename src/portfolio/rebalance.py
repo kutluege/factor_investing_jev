@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from src.portfolio.book import BrokerAdapter, CostModel, Fill, Order, Portfolio
-from src.portfolio.weights import target_weights
+from src.portfolio.weights import cap_weights, target_weights
 
 REGIME_EXPOSURE = {"none": 1.0, "half": 0.5, "cash": 0.0}
 
@@ -150,3 +150,37 @@ def theme_targets(picks: dict[str, list[str]], theme_weights: dict[str, float], 
         for s in syms:
             w[s] = w.get(s, 0.0) + each
     return pd.Series(w, dtype=float)
+
+
+def theme_tilt_weights(score: pd.Series, budget: float, lam: float, top_frac: float, cap: float,
+                       blocked: set[str] | frozenset = frozenset()) -> pd.Series:
+    """Score-tilted holding of one theme (v2 construction; Grinold-Kahn style tilt around the theme index).
+
+    Eligible members (index of ``score``) start from equal weight, the theme index weight. Names in the top
+    ``top_frac`` by score are kept (all when 1.0); weights are proportional to max(0, 1 + lam * z) with z the
+    score (robust z, NaN = neutral 0); ``blocked`` names are dropped (entry block); the result is scaled to
+    ``budget`` with a single-name ``cap`` (fraction of total capital). lam = 0 and top_frac = 1 replicate the
+    equal-weight theme index, so the whole budget is always invested when the theme has members."""
+    z = score.astype(float).fillna(0.0)
+    z = z[~z.index.isin(list(blocked))]
+    if z.empty or budget <= 0:
+        return pd.Series(dtype=float)
+    n_keep = max(1, int(np.ceil(top_frac * len(z))))
+    z = z.sort_values(ascending=False).iloc[:n_keep]
+    raw = (1.0 + lam * z).clip(lower=0.0)
+    if raw.sum() <= 0:
+        raw = pd.Series(1.0, index=z.index)
+    w = cap_weights(raw[raw > 0], min(1.0, cap / budget))
+    return (w * budget).astype(float)
+
+
+def partial_rebalance(current: pd.Series, target: pd.Series, speed: float) -> pd.Series:
+    """Move ``speed`` of the way from current to target weights (THEMES_SPEC §11 partial trading); names that
+    leave the target are sold completely (no lingering positions outside the theme membership)."""
+    if speed >= 1.0 or current.empty:
+        return target
+    names = target.index.union(current.index)
+    cur, tgt = current.reindex(names, fill_value=0.0), target.reindex(names, fill_value=0.0)
+    out = cur + speed * (tgt - cur)
+    out[~names.isin(target.index)] = 0.0
+    return out[out > 1e-9]
