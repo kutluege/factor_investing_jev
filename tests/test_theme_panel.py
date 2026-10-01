@@ -130,3 +130,13 @@ def test_theme_lookahead_audit_passes_and_detects(built):
         con.execute("DELETE FROM theme_feature_panel")
         con.execute("INSERT INTO theme_feature_panel SELECT * FROM tp_backup")
         con.execute("DROP TABLE tp_backup")
+
+
+def test_duplicate_listing_rule_keeps_most_liquid():
+    import pandas as pd
+    p = pd.DataFrame({"rebalance_date": pd.Timestamp("2026-09-30"), "theme": "ai", "cik": ["1", "1", "2"],
+                      "symbol": ["MSTR", "STRC", "NVDA"], "adv20": [5e9, 2e7, 9e9], "eligible": True,
+                      "exclusion_reason": None})
+    dup = p[p["eligible"] & p["cik"].notna()].sort_values("adv20", ascending=False).duplicated(
+        ["rebalance_date", "theme", "cik"])
+    assert list(p.loc[dup[dup].index, "symbol"]) == ["STRC"]

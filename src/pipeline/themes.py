@@ -650,7 +650,22 @@ def forward(db: str = typer.Option(None), eval_months: int = 36) -> None:
     n1 = F.record(ctx.con, "v1r2_topn", d, pd.DataFrame({"symbol": tv1.index, "theme": c1u.loc[tv1.index, "theme"],
                                                          "weight": tv1.to_numpy(),
                                                          "score": c1u.loc[tv1.index, "score"].to_numpy()}))
+    # v2 shortlist for the user's TA: top-N per theme ranked by the selected configuration's scores
+    from src.config import PROJECT_ROOT as ROOT
+    from src.themes.membership import members_on
+    from src.themes.shortlist import build_shortlist, load_overrides, shortlist_markdown
+    v2s = c1.reset_index().drop(columns=["score"]).merge(
+        cross[["symbol", "theme", "score"]], on=["symbol", "theme"], how="left").set_index("symbol")
+    held_v2 = {s: set(g["theme"]) for s, g in tv2.rename("w").to_frame().join(
+        cross.drop_duplicates(["symbol", "theme"]).set_index("symbol")["theme"]).groupby(level=0)}
+    ev = members_on(membership_frame_full(ctx.con), d).drop_duplicates(["symbol", "theme"]).set_index("symbol")
+    sl = build_shortlist(v2s, cfg, held_v2, ev, load_overrides())
+    sl = sl.merge(pd.Series(tv2, name="v2_target_weight").rename_axis("symbol").reset_index(), on="symbol", how="left")
+    out = ROOT / "reports" / "themes"
+    sl.to_csv(out / f"shortlist_v2_{d.date()}.csv", index=False)
+    (out / f"shortlist_v2_{d.date()}.md").write_text(shortlist_markdown(sl, d, cfg), encoding="utf-8")
     print_json("forward", {"snapshot_date": str(d.date()), "v2_names": n2, "v1r2_names": n1,
+                           "shortlist": str(out / f"shortlist_v2_{d.date()}.md"),
                            "v2_frozen_new": meta["new"], "evaluation_date": str(meta["evaluation_date"])})
 
 

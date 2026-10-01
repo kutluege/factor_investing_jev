@@ -125,7 +125,7 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
             pd.Series(np.nan, index=base.index)
         base["beta_252d"] = beta_252d_at(mats["close"][base.index], market, d) if market is not None else np.nan
         base["size_ln_mcap"] = size_ln_mcap(base["market_cap"])
-        m = mem.loc[mem["symbol"].isin(base.index), ["symbol", "theme", "subtheme", "valid_from"]]
+        m = mem.loc[mem["symbol"].isin(base.index), ["symbol", "cik", "theme", "subtheme", "valid_from"]]
         f = m.rename(columns={"valid_from": "membership_valid_from"}).merge(
             base, left_on="symbol", right_index=True, how="left").reset_index(drop=True)
         f["stage"] = stage_flags(f["ocf_ttm"], f["revenue_ttm"], f["theme"], cfg.stage.biotech_commercial_revenue_usd,
@@ -165,6 +165,13 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
     no_fund = panel["exclusion_reason"].isna() & (panel["stage"] == "unknown")
     panel.loc[no_fund, "exclusion_reason"] = "fundamentals unavailable (no USD XBRL)"
     panel["eligible"] = panel["exclusion_reason"].isna()
+    # one listing per company: preferreds, exchange-traded notes and secondary share classes share the issuer's CIK;
+    # keep the most liquid eligible symbol per (date, theme, cik) using ADV20 on that date (point in time)
+    dup = panel[panel["eligible"] & panel["cik"].notna()].sort_values("adv20", ascending=False).duplicated(
+        ["rebalance_date", "theme", "cik"])
+    dup_idx = dup[dup].index
+    panel.loc[dup_idx, "exclusion_reason"] = "duplicate listing of the same company (lower ADV20)"
+    panel.loc[dup_idx, "eligible"] = False
 
     haircut = delisting_haircuts(mats["close"], mats["raw_close"], load_config("backtest")["costs"])
     labels = {h: forward_returns(mats["close"], dates, h, haircut) for h in cfg.research.horizons}
