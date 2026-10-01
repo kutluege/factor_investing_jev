@@ -111,6 +111,40 @@ def t1_universe(db: str = typer.Option(None), skip_data: bool = False) -> None:
     console.print(f"wrote {out}")
 
 
+@app.command("t1b-load-members")
+def t1b_load_members(db: str = typer.Option(None)) -> None:
+    """v2: prices/splits/SEC fundamentals only for theme members (and theme ETFs) that have no data yet."""
+    import pandas as pd
+
+    from src.config import load_config
+    from src.data.fundamentals_loader import load_fundamentals
+    from src.data.prices import load_prices, load_splits, repair_adjusted
+    from src.themes.config import load_strict
+    setup_logging()
+    cfg = load_strict()
+    ctx = open_context(db, progress_printer)
+    fmp, sec = make_clients(ctx)
+    mem = ctx.con.execute("SELECT DISTINCT symbol, cik FROM theme_membership").df()
+    have = {r[0] for r in ctx.con.execute("SELECT DISTINCT symbol FROM daily_prices").fetchall()}
+    etfs = sorted({b for t in cfg.themes.values() for b in t.benchmarks} | set(THEME_BENCHMARKS_EXTRA))
+    new_syms = sorted((set(mem["symbol"]) | set(etfs)) - have)
+    rep = {"members": int(mem["symbol"].nunique()), "new_symbols": len(new_syms)}
+    if new_syms:
+        pr = load_prices(ctx.con, fmp, new_syms)
+        rep["prices"] = {k: v for k, v in pr.items() if k != "failed"} | {"failed": len(pr.get("failed", {}))}
+        rep["splits"] = load_splits(ctx.con, fmp, new_syms)
+        rep["adjusted_repairs"] = repair_adjusted(ctx.con, new_syms)
+    have_f = {r[0] for r in ctx.con.execute("SELECT DISTINCT cik FROM fundamental_snapshots").fetchall()}
+    new_ciks = sorted(set(mem["cik"].dropna()) - have_f)
+    rep["new_ciks"] = len(new_ciks)
+    if new_ciks:
+        scfg = load_config("data")["sec"]
+        rep["fundamentals"] = {k: v for k, v in load_fundamentals(
+            ctx.con, sec, new_ciks, snapshot_min_date=pd.Timestamp(scfg["snapshot_min_date"]),
+            workers=int(scfg.get("snapshot_workers", 4))).items() if k != "failed"}
+    print_json("T1b", rep)
+
+
 @app.command("t2-item1")
 def t2_item1(db: str = typer.Option(None), workers: int = 6, since: str = "2009-01-01",
              limit: int = typer.Option(None, help="only the first N companies (sample run)"),
@@ -205,14 +239,21 @@ def t4b_verify(n: int = 20, seed: int = 20260930) -> None:
 
 
 @app.command("t4b-events")
-def t4b_events(db: str = typer.Option(None), workers: int = 4) -> None:
+def t4b_events(db: str = typer.Option(None), workers: int = 4,
+               members_only: bool = typer.Option(False, help="only theme members without stored events (v2)")) -> None:
     """T4b: announcement events (8-K Item 2.02 timing + FMP realized EPS) for all theme candidates."""
+    from src.themes.earnings import DDL as EV_DDL
     from src.themes.earnings import build_earnings_events
     from src.themes.tasks import sessions
     setup_logging()
     ctx = open_context(db, progress_printer)
     fmp, sec = make_clients(ctx)
-    cands = ctx.con.execute("SELECT symbol, cik FROM theme_candidates WHERE cik IS NOT NULL").df()
+    if members_only:
+        ctx.con.execute(EV_DDL)
+        cands = ctx.con.execute("SELECT DISTINCT symbol, cik FROM theme_membership WHERE cik IS NOT NULL AND symbol "
+                                "NOT IN (SELECT DISTINCT symbol FROM earnings_events)").df()
+    else:
+        cands = ctx.con.execute("SELECT symbol, cik FROM theme_candidates WHERE cik IS NOT NULL").df()
     print_json("T4b events", build_earnings_events(ctx.con, fmp, sec, cands, sessions(ctx.con), workers))
 
 
