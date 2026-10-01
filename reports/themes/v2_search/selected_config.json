@@ -1,0 +1,33 @@
+{
+  "key": "1362013f7f89",
+  "config": {
+    "group_mult": {
+      "fundamental_mom": 0.5,
+      "growth_quality": 0.5,
+      "investment": 0.5,
+      "low_risk": 1.0,
+      "momentum": 0.5,
+      "quality": 4.0,
+      "survival": 0.25,
+      "commodity": 0.25,
+      "leverage": 0.25,
+      "value": 2.0
+    },
+    "lam": 0.74,
+    "top_frac": 0.2,
+    "budgets": {
+      "ai": 0.23,
+      "biotech": 0.122,
+      "cyber_cloud": 0.16,
+      "defense_space": 0.112,
+      "energy": 0.101,
+      "robotics": 0.102,
+      "semiconductors": 0.173
+    },
+    "speed": 1.0,
+    "rebalance_months": 3,
+    "vol_block": 0.1
+  },
+  "selected_on": "2011-06-30..2020-12-31",
+  "min_track_record_months": 329.57008384240567
+}
