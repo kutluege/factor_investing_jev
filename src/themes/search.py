@@ -164,12 +164,25 @@ class PeriodData:
         self.benchmark = (self.index[w.index].fillna(0) * w).sum(axis=1) / (avail * w).sum(axis=1)
 
 
+def tilt_targets(cross: pd.DataFrame, cfg: SearchConfig, position_cap: float) -> pd.Series:
+    """Target weights on one date. ``cross``: eligible members with symbol, theme, score, vol_60d columns."""
+    budgets = dict(cfg.budgets)
+    blocked: set[str] = set()
+    if cfg.vol_block > 0:
+        v = cross.set_index("symbol")["vol_60d"].dropna()
+        blocked = set(v[v >= v.quantile(1 - cfg.vol_block)].index)
+    parts = [theme_tilt_weights(g.set_index("symbol")["score"], budgets[t], cfg.lam, cfg.top_frac, position_cap,
+                                blocked)
+             for t, g in cross.groupby("theme") if budgets.get(t, 0) > 0]
+    target = pd.concat(parts) if parts else pd.Series(dtype=float)
+    return target.groupby(level=0).sum()
+
+
 def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap: float, capital: float = 100_000.0,
              cost_multiplier: float = 1.0, scores: pd.Series | None = None) -> pd.DataFrame:
     """Monthly net portfolio returns, benchmark, contribution and turnover for one configuration."""
     sc = scores if scores is not None else si.scores(dict(cfg.group_mult))
     df = si.df.assign(score=sc)
-    budgets = dict(cfg.budgets)
     by_date = dict(tuple(df.groupby("rebalance_date")))
     held = pd.Series(dtype=float)
     rows = []
@@ -177,19 +190,7 @@ def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap
         cross = by_date.get(d)
         rebalance = k % cfg.rebalance_months == 0 and cross is not None
         if rebalance:
-            blocked: set[str] = set()
-            if cfg.vol_block > 0:
-                v = cross.set_index("symbol")["vol_60d"].dropna()
-                blocked = set(v[v >= v.quantile(1 - cfg.vol_block)].index)
-            parts = []
-            for t, g in cross.groupby("theme"):
-                if budgets.get(t, 0) <= 0:
-                    continue
-                parts.append(theme_tilt_weights(g.set_index("symbol")["score"], budgets[t], cfg.lam, cfg.top_frac,
-                                                position_cap, blocked))
-            target = pd.concat(parts) if parts else pd.Series(dtype=float)
-            target = target.groupby(level=0).sum()
-            new = partial_rebalance(held, target, cfg.speed)
+            new = partial_rebalance(held, tilt_targets(cross, cfg, position_cap), cfg.speed)
         else:
             members = set(cross["symbol"]) if cross is not None else set()
             new = held[held.index.isin(members)] if cross is not None else held

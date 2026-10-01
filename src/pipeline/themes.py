@@ -531,6 +531,125 @@ def t7_ta_eval(db: str = typer.Option(None), journal: str = typer.Option(None)) 
     print_json("T7 eval", {k: v for k, v in ev.items() if k != "table"})
 
 
+@app.command("search")
+def search(db: str = typer.Option(None), trials: int = 500, seed: int = 20261001) -> None:
+    """v2 free-search track (user decision 2026-10-01): seeded random search with measured overfitting."""
+    import re
+
+    from src.config import PROJECT_ROOT
+    from src.themes.config import load_themes_config
+    from src.themes.search_run import run_search, write_report
+    setup_logging()
+    cfg = load_themes_config()
+    ctx = open_context(db, progress_printer)
+    out = PROJECT_ROOT / "reports" / "themes" / "v2_search"
+    res = run_search(ctx.con, cfg, trials, seed, out)
+    v1r2 = None
+    v1r2_md = PROJECT_ROOT / "reports" / "themes" / "T6_backtest_v1r2.md"
+    if v1r2_md.exists():
+        txt = v1r2_md.read_text(encoding="utf-8")
+        m = re.search(r"Aritmetik katkı ([+-][\d.]+)%/yıl, takip hatası ([\d.]+)%, bilgi oranı ([+-][\d.]+)", txt)
+        if m:
+            v1r2 = {"contribution_arith_ann": float(m.group(1)) / 100, "tracking_error_ann": float(m.group(2)) / 100,
+                    "information_ratio": float(m.group(3))}
+    path = write_report(res, v1r2, out)
+    ev = res["evaluation"]
+    print_json("search", {k: ev[k] for k in ("selected", "design_ir", "holdout_ir", "wf_ir", "trials")}
+               | {"pbo": ev["pbo"].get("pbo"), "dsr": ev["dsr_full_sample_best"].get("dsr"),
+                  "exact_passed": res["success"]["criteria"]["passed"], "report": str(path)})
+
+
+@app.command("forward")
+def forward(db: str = typer.Option(None), eval_months: int = 36) -> None:
+    """Record this month's forward (shadow) targets of the frozen v2 selection and of themes_v1-r2 (top-N)."""
+    import json
+
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT
+    from src.portfolio.rebalance import theme_targets
+    from src.themes import forward as F
+    from src.themes.backtest import monthly_signals
+    from src.themes.config import load_themes_config
+    from src.themes.panel import load_theme_panel
+    from src.themes.scoring import score_panel
+    from src.themes.search import ScoreInputs, SearchConfig, tilt_targets
+    setup_logging()
+    cfg = load_themes_config()
+    ctx = open_context(db, progress_printer)
+    panel = load_theme_panel(ctx.con)
+    d = panel["rebalance_date"].max()
+    scores = score_panel(panel[panel["rebalance_date"] == d], cfg)
+    si = ScoreInputs(panel[panel["rebalance_date"] == d], scores, cfg)
+    sel = json.loads((PROJECT_ROOT / "reports" / "themes" / "v2_search" / "selected_config.json").read_text())
+    evald = pd.Timestamp.now().normalize() + pd.DateOffset(months=eval_months)
+    meta = F.freeze(ctx.con, "v2_selected", sel["config"], f"search {sel['key']}", evald,
+                    sel.get("min_track_record_months"))
+    c = meta["config"]
+    sc = SearchConfig(tuple(sorted(c["group_mult"].items())), c["lam"], c["top_frac"],
+                      tuple(sorted(c["budgets"].items())), c["speed"], c["rebalance_months"], c["vol_block"])
+    cross = si.df.assign(score=si.scores(c["group_mult"]))
+    tv2 = tilt_targets(cross, sc, cfg.portfolio.position_cap)
+    info = cross.set_index("symbol")
+    n2 = F.record(ctx.con, "v2_selected", d, pd.DataFrame({"symbol": tv2.index, "theme": info.loc[tv2.index, "theme"],
+                                                           "weight": tv2.to_numpy(),
+                                                           "score": info.loc[tv2.index, "score"].to_numpy()}))
+    F.freeze(ctx.con, "v1r2_topn", {"construction": "themes_v1 top-N (pre-registered)"}, "themes_v1", evald)
+    prev = ctx.con.execute("SELECT symbol, theme FROM theme_forward_targets WHERE model = 'v1r2_topn' AND "
+                           "snapshot_date < ? ORDER BY snapshot_date DESC", [d.date()]).df()
+    held = dict(zip(prev["symbol"], prev["theme"], strict=False)) if len(prev) else {}
+    c1 = panel[(panel["rebalance_date"] == d) & panel["eligible"]].merge(
+        scores[["symbol", "score"] + [x for x in scores.columns if x.startswith("grp_")]], on="symbol").set_index("symbol")
+    sigs = monthly_signals(c1, cfg, held)
+    keep = {t: [s for s, x in sg.items() if x in ("HOLD", "BUY")] for t, sg in sigs.items()}
+    tv1 = theme_targets(keep, cfg.enabled_weights(), {t: th.n_picks for t, th in cfg.themes.items()},
+                        cfg.portfolio.position_cap)
+    n1 = F.record(ctx.con, "v1r2_topn", d, pd.DataFrame({"symbol": tv1.index, "theme": c1.loc[tv1.index, "theme"],
+                                                         "weight": tv1.to_numpy(),
+                                                         "score": c1.loc[tv1.index, "score"].to_numpy()}))
+    print_json("forward", {"snapshot_date": str(d.date()), "v2_names": n2, "v1r2_names": n1,
+                           "v2_frozen_new": meta["new"], "evaluation_date": str(meta["evaluation_date"])})
+
+
+@app.command("forward-eval")
+def forward_eval(db: str = typer.Option(None)) -> None:
+    """Evaluate matured forward months of every tracked model against the composite theme index."""
+    import pandas as pd
+
+    from src.config import PROJECT_ROOT, load_config
+    from src.features.store import load_market_data
+    from src.themes import forward as F
+    from src.themes.config import load_themes_config
+    from src.themes.panel import load_theme_panel
+    setup_logging()
+    cfg = load_themes_config()
+    ctx = open_context(db, progress_printer)
+    F.init(ctx.con)
+    snaps = ctx.con.execute("SELECT * FROM theme_forward_targets").df()
+    meta = ctx.con.execute("SELECT model, source, frozen_at, evaluation_date FROM theme_forward_meta").df()
+    panel = load_theme_panel(ctx.con)
+    lines = ["# İleri (gölge) takip", "", "Tek temiz örneklem dışı kanıt. Yapılandırmalar donduruldu; aylık hedef "
+             "ağırlıklar kaydedilir, olgunlaşan aylar kompozit tema endeksine karşı değerlendirilir.", "",
+             "| Model | Kaynak | Donduruldu | Değerlendirme tarihi |", "|---|---|---|---|"]
+    lines += [f"| {r.model} | {r.source} | {r.frozen_at} | {r.evaluation_date} |" for r in meta.itertuples()]
+    if snaps.empty:
+        lines += ["", "Henüz kayıt yok."]
+    else:
+        snaps["snapshot_date"] = pd.to_datetime(snaps["snapshot_date"])
+        md_ = load_market_data(ctx.con, sorted(snaps["symbol"].unique()) + sorted(panel["symbol"].unique()))
+        costs = load_config("backtest")["costs"]
+        unit = (float(costs["slippage_bps"]) + float(costs["transaction_cost_bps"])) / 1e4
+        real = F.realized(snaps, md_.mats["close"], panel[panel["eligible"]], cfg.enabled_weights(), unit)
+        s = F.summary(real)
+        lines += ["", f"Kayıtlı aylar: {snaps['snapshot_date'].nunique()}; olgunlaşan ay sayısı modele göre aşağıda.",
+                  "", "| Model | Olgun ay | Katkı (yıllık) | IR | t |", "|---|---|---|---|---|"]
+        lines += [f"| {r.model} | {r.months} | {r.contribution_ann:+.2%} | {r.ir:+.2f} | {r.t:+.2f} |"
+                  for r in s.itertuples()]
+    out = PROJECT_ROOT / "reports" / "themes" / "forward_tracking.md"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print_json("forward-eval", {"report": str(out), "snapshots": int(len(snaps))})
+
+
 def membership_frame_full(con):
     import pandas as pd
     m = con.execute("SELECT symbol, theme, subtheme, valid_from, valid_to, method, hits, matched, filing_accession "
