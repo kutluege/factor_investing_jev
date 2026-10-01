@@ -23,6 +23,24 @@ VALIDATION_TERMS: dict[str, list[str]] = {
     "nuclear_uranium": ["uranium", "nuclear"],
     "grid_equipment": ["transmission", "transformer", "switchgear", "grid", "electrical", "power"],
     "renewables": ["solar", "wind", "renewable", "storage", "hydrogen", "fuel cell", "geothermal", "clean energy"],
+    # v2 themes (2026-10-01): broader validation vocabulary than the membership keywords
+    "biotech_tools": ["life science", "diagnostic", "genomic", "sequencing", "laboratory", "research", "assay",
+                      "bioprocess", "analytical", "testing"],
+    "ai_compute": ["artificial intelligence", " ai ", "ai-", "machine learning", "gpu", "accelerat", "processor",
+                   "data center", "semiconductor", "computing", "chip"],
+    "ai_infrastructure": ["data center", "artificial intelligence", " ai ", "cloud", "computing", "network",
+                          "cooling", "power", "infrastructure", "fiber", "interconnect"],
+    "ai_software": ["artificial intelligence", " ai ", "ai-", "machine learning", "intelligent", "analytics",
+                    "automation", "data", "platform"],
+    "semis_all": ["semiconductor", "chip", "integrated circuit", "wafer", "analog", "mixed-signal", "memory",
+                  "processor", "microcontroller", "rf ", "power management"],
+    "semi_equipment": ["semiconductor", "wafer", "chip", "lithography", "deposition", "etch", "inspection",
+                       "metrology", "test"],
+    "cybersecurity": ["security", "cyber", "threat", "identity", "firewall", "protect", "encryption", "fraud"],
+    "cloud_saas": ["cloud", "software-as-a-service", "saas", "subscription", "platform", "software"],
+    "defense": ["defense", "military", "government", "aerospace", "national security", "missile", "army", "navy"],
+    "space": ["space", "satellite", "launch", "orbit", "spacecraft", "aerospace"],
+    "quantum": ["quantum"],
 }
 
 
