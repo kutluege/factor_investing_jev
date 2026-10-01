@@ -334,16 +334,20 @@ def t5_research(db: str = typer.Option(None), run_id: str = typer.Option(None)) 
 
 
 @app.command("t6-backtest")
-def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None:
+def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30",
+                tag: str = typer.Option("", help="output suffix, e.g. v1r2 (keeps earlier reports)"),
+                rf: bool = typer.Option(True, help="uninvested cash earns the French risk-free rate")) -> None:
     """T6: single fixed-config theme portfolio backtest, §8 success table and the current shortlist."""
     import numpy as np
     import pandas as pd
 
     from src.config import PROJECT_ROOT, load_config
+    from src.data.french import french_monthly
     from src.features.store import load_market_data
     from src.themes.backtest import (
         ThemeBacktester,
         annualized,
+        daily_rf,
         equity_period_returns,
         max_drawdown,
         period_returns,
@@ -367,7 +371,8 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
     haircut = delisting_haircuts(md_.mats["close"], md_.mats["raw_close"], load_config("backtest")["costs"])
     bt = ThemeBacktester(panel, scores, cfg, md_.mats["open"], md_.mats["close"], haircuts=haircut)
     s0 = pd.Timestamp(start)
-    r1, r2 = bt.run(1.0, s0), bt.run(2.0, s0)
+    rfd = daily_rf(french_monthly(), md_.calendar) if rf else None
+    r1, r2 = bt.run(1.0, s0, rfd), bt.run(2.0, s0, rfd)
     dates = [d for d in bt.dates if d >= s0]
     idx = theme_indices(panel, md_.mats["close"], cfg, dates, haircut)
     port, port2 = equity_period_returns(r1.equity, dates), equity_period_returns(r2.equity, dates)
@@ -385,15 +390,17 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
     out = PROJECT_ROOT / "reports" / "themes"
     frame = pd.DataFrame({"portfolio": port, "portfolio_2x_costs": port2}).join(idx, how="outer").join(
         sl.add_prefix("sleeve_gross_"), how="left")
-    frame.to_csv(out / "T6_period_returns.csv")
-    r1.trades.to_csv(out / "T6_trades.csv", index=False)
+    sfx = f"_{tag}" if tag else ""
+    frame.to_csv(out / f"T6_period_returns{sfx}.csv")
+    r1.trades.to_csv(out / f"T6_trades{sfx}.csv", index=False)
     c = succ["criteria"]
 
     def line(name, r):
         r = r.dropna()
         return (f"| {name} | {r.index.min().date() if len(r) else '—'} | {annualized(r):.2%} | "
                 f"{r.std() * np.sqrt(12):.2%} | {max_drawdown(r):.2%} |") if len(r) else f"| {name} | — | — | — | — |"
-    md = ["# T6 — Tema portföyü backtest (themes_v1, tek sabit yapılandırma)", "",
+    title_tag = f" — {tag}" if tag else ""
+    md = [f"# T6 — Tema portföyü backtest (themes_v1, tek sabit yapılandırma){title_tag}", "",
           f"Ön kayıt SHA256 `{sha}`. Dönem {dates[0].date()} → {dates[-1].date()} ({len(dates)} ay). Jev ağırlığı 0. "
           "Parametre taraması yok; yapılandırma hiçbir parametre tahmin etmediği için tüm dönem örneklem dışıdır ve "
           "ön kayıtlı alt dönemler walk-forward katmanlarının yerini tutar.",
@@ -410,6 +417,12 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
           f"{'✔' if c['c3_costs_2x'] else '✘'} |",
           f"| **Sonuç** | seçim katkısı (tüm dönem) {c['contribution_ann']:+.2%}/yıl | "
           f"**{'GEÇTİ' if c['passed'] else 'GEÇMEDİ'}** |", "",
+          "## Seçim katkısının istatistiği (aylık, aritmetik)", "",
+          f"Aritmetik katkı {c.get('contribution_arith_ann', float('nan')):+.2%}/yıl, takip hatası "
+          f"{c.get('tracking_error_ann', float('nan')):.2%}, bilgi oranı {c.get('information_ratio', float('nan')):+.2f}, "
+          f"NW t {c.get('contribution_nw_t', float('nan')):+.2f}; gözlenen bilgi oranının %95 güvenle anlamlı olması "
+          f"için gereken en kısa süre (MinTRL): {c.get('min_track_record_months', float('nan')):.0f} ay. "
+          f"Nakit: {'risksiz faiz (French RF) işler' if rf else 'faiz işlemez'}.", "",
           "## Alt dönemler", "", "| Alt dönem | Ay | Portföy (yıllık) | Tema endeksi (yıllık) | Seçim katkısı |",
           "|---|---|---|---|---|"]
     for r in succ["subperiods"].itertuples():
@@ -421,17 +434,21 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
            line("Bileşik tema endeksi", idx["composite"])]
     md += [line(f"Tema endeksi: {t}", idx[t]) for t in idx.columns.drop("composite")]
     md += [line(e, r) for e, r in bench.items()]
-    md += ["", "## Tema kolları (brüt) vs tema endeksi", "", "| Tema | Kol (yıllık) | Endeks (yıllık) | Fark |",
-           "|---|---|---|---|"]
+    md += ["", "## Tema kolları (brüt) vs tema endeksi", "",
+           "Geometrik fark oynaklık sürüklenmesinden etkilenir (düşük oynaklıklı kol lehine); asıl ölçü aritmetik "
+           "farktır.", "", "| Tema | Kol (geom.) | Endeks (geom.) | Geom. fark | Aritm. fark | t |",
+           "|---|---|---|---|---|---|"]
     for t in sl.columns:
         a, b = annualized(sl[t]), annualized(idx[t].reindex(sl[t].dropna().index))
-        md.append(f"| {t} | {a:.2%} | {b:.2%} | {a - b:+.2%} |")
+        dd = (sl[t] - idx[t]).dropna()
+        tt = dd.mean() / dd.std(ddof=1) * np.sqrt(len(dd)) if len(dd) > 2 else float("nan")
+        md.append(f"| {t} | {a:.2%} | {b:.2%} | {a - b:+.2%} | {dd.mean() * 12:+.2%} | {tt:+.2f} |")
     decision = ("Faktör seçimi canlı kullanıma girer (ROADMAP Adım 8-9)." if c["passed"] else
                 "Faktör seçimi temayı geçemedi: tema içinde geniş eşit ağırlıklı sepet (veya tema ETF'i) tutulur; "
                 "yalnızca nakit ömrü/sulandırma elemeleri korunur, TA zamanlama için kullanılır (ROADMAP Adım 7).")
     md += ["", "## Karar", "", decision, "",
-           f"İşlem sayısı: {len(r1.trades)}; dosyalar: `T6_period_returns.csv`, `T6_trades.csv`."]
-    (out / "T6_backtest.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+           f"İşlem sayısı: {len(r1.trades)}; dosyalar: `T6_period_returns{sfx}.csv`, `T6_trades{sfx}.csv`."]
+    (out / f"T6_backtest{sfx}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     # shortlist for the latest rebalance date (holdings before it = after the previous rebalance)
     last = bt.dates[-1]
     prev = [d for d in bt.dates if d < last][-1]
@@ -439,9 +456,9 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30") -> None
     cross = bt.cross[last]
     ev = members_on(membership_frame_full(ctx.con), last).drop_duplicates("symbol").set_index("symbol")
     sl_df = build_shortlist(cross, cfg, held, ev, load_overrides())
-    sl_df.to_csv(out / f"shortlist_{last.date()}.csv", index=False)
-    (out / f"shortlist_{last.date()}.md").write_text(shortlist_markdown(sl_df, last, cfg), encoding="utf-8")
-    print_json("T6", {"criteria": c, "shortlist": str(out / f"shortlist_{last.date()}.md")})
+    sl_df.to_csv(out / f"shortlist_{last.date()}{sfx}.csv", index=False)
+    (out / f"shortlist_{last.date()}{sfx}.md").write_text(shortlist_markdown(sl_df, last, cfg), encoding="utf-8")
+    print_json("T6", {"criteria": c, "report": str(out / f"T6_backtest{sfx}.md")})
 
 
 @app.command("t7-ta-table")

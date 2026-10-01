@@ -141,3 +141,20 @@ def test_period_returns_per_symbol_haircut():
     close = pd.DataFrame({"A": [10, 10, 10, 10.0], "B": [10, 10, np.nan, np.nan]}, index=idx)
     r = period_returns(close, {idx[0]: ["A", "B"]}, [idx[0], idx[3]], haircut=pd.Series({"B": 0.3}))
     assert r.iloc[0] == pytest.approx((0.0 + -0.3) / 2)
+
+
+def test_daily_rf_sums_to_monthly_and_cash_accrues():
+    from src.themes.backtest import contribution_stats, daily_rf
+    cal = pd.bdate_range("2020-01-01", "2020-03-31")
+    fr = pd.DataFrame({"ff_rf": [0.01, 0.02, 0.03]}, index=pd.to_datetime(["2020-01-31", "2020-02-29", "2020-03-31"]))
+    rf = daily_rf(fr, cal)
+    assert rf.groupby(cal.month).sum().tolist() == pytest.approx([0.01, 0.02, 0.03])
+    panel, scores, o, c, dates = synthetic(seed=5)
+    scores["score"] = np.nan  # nothing selectable -> all cash
+    bt = ThemeBacktester(panel, scores, CFG, o, c)
+    flat = bt.run().equity
+    rfd = pd.Series(0.0001, index=c.index)
+    grown = bt.run(rf_daily=rfd).equity
+    assert flat.iloc[-1] == pytest.approx(100_000.0) and grown.iloc[-1] > flat.iloc[-1] * 1.05
+    s = contribution_stats(pd.Series(np.r_[np.full(30, 0.002), np.full(30, 0.0)] + 0.001))
+    assert s["information_ratio"] > 0 and s["contribution_arith_ann"] == pytest.approx(0.024)

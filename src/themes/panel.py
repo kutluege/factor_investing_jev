@@ -122,7 +122,9 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
         f["membership_valid_from"] = mem["valid_from"].reindex(f.index)
         f["theme"] = mem["theme"].reindex(f.index)
         f["subtheme"] = mem["subtheme"].reindex(f.index)
-        f["stage"] = stage_flags(f["ocf_ttm"], f["revenue_ttm"], f["theme"], cfg.stage.biotech_commercial_revenue_usd)
+        assets = snap["total_assets"].reindex(f.index) if "total_assets" in snap else pd.Series(np.nan, index=f.index)
+        f["stage"] = stage_flags(f["ocf_ttm"], f["revenue_ttm"], f["theme"], cfg.stage.biotech_commercial_revenue_usd,
+                                 total_assets=assets)
         f["profitable_growth"] = np.nan
         for _, idx in f.groupby("theme").groups.items():
             g = f.loc[idx]
@@ -151,6 +153,8 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
     ipo = dict(zip(cand["symbol"], pd.to_datetime(cand["ipo_date"]), strict=False))
     panel["exclusion_reason"] = exclusion_reasons(panel, {}, ipo, ucfg.min_history_sessions, ucfg.min_price,
                                                   ucfg.min_market_cap, ucfg.min_adv20)
+    no_fund = panel["exclusion_reason"].isna() & (panel["stage"] == "unknown")
+    panel.loc[no_fund, "exclusion_reason"] = "fundamentals unavailable (no USD XBRL)"
     panel["eligible"] = panel["exclusion_reason"].isna()
 
     haircut = delisting_haircuts(mats["close"], mats["raw_close"], load_config("backtest")["costs"])

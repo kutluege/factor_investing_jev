@@ -16,14 +16,20 @@ OIL_SYMBOL = "BZUSD"
 MARKET_SYMBOL = "SPY"
 
 
-def stage_flags(ocf_ttm: pd.Series, revenue_ttm: pd.Series, theme: pd.Series, biotech_threshold: float) -> pd.Series:
-    """'pre_profit' | 'profitable' | 'clinical' | 'commercial' (biotech). Missing OCF -> treated as pre_profit only
-    if revenue is also missing (no evidence of a profitable business)."""
+def stage_flags(ocf_ttm: pd.Series, revenue_ttm: pd.Series, theme: pd.Series, biotech_threshold: float,
+                total_assets: pd.Series | None = None) -> pd.Series:
+    """'pre_profit' | 'profitable' | 'clinical' | 'commercial' (biotech) | 'unknown'.
+
+    Missing OCF -> pre_profit only if revenue is also missing. 'unknown' when OCF, revenue and total assets are all
+    missing on the date: no usable USD XBRL statements (e.g. a 10-K filer reporting in CAD), so the firm is not
+    scored (v2 data fix; previously such firms were labelled pre_profit)."""
     pre = (ocf_ttm <= 0) | (ocf_ttm.isna() & revenue_ttm.isna())
     out = pd.Series(np.where(pre, "pre_profit", "profitable"), index=ocf_ttm.index)
     bio = theme == "biotech"
     clinical = pre | (revenue_ttm.fillna(0) < biotech_threshold)
     out[bio] = np.where(clinical[bio], "clinical", "commercial")
+    if total_assets is not None:
+        out[ocf_ttm.isna() & revenue_ttm.isna() & total_assets.reindex(ocf_ttm.index).isna()] = "unknown"
     return out
 
 

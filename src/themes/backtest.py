@@ -73,7 +73,9 @@ class ThemeBacktester:
         self.initial_capital = initial_capital
         self.haircuts = haircuts if haircuts is not None else pd.Series(dtype=float)
 
-    def run(self, cost_multiplier: float = 1.0, start: pd.Timestamp | None = None) -> ThemeBacktestResult:
+    def run(self, cost_multiplier: float = 1.0, start: pd.Timestamp | None = None,
+            rf_daily: pd.Series | None = None) -> ThemeBacktestResult:
+        """``rf_daily``: risk-free rate per session (``daily_rf``); uninvested cash accrues it (v2 data fix)."""
         cfg, ccfg = self.cfg, self.bt["costs"]
         costs = CostModel.from_config(ccfg, cost_multiplier)
         broker = SimulatedBroker(costs)
@@ -90,6 +92,8 @@ class ThemeBacktester:
         last_close: dict[str, float] = {}
         eq_idx, eq_val, trades, sig_rows, hold_rows = [], [], [], [], []
         for day in self.calendar[self.calendar > dates[0]]:
+            if rf_daily is not None:
+                port.cash *= 1.0 + float(rf_daily.get(day, 0.0))
             if day in trade_day:
                 d = trade_day[day]
                 cross = self.cross[d]
@@ -146,6 +150,15 @@ class ThemeBacktester:
         return ThemeBacktestResult(equity, pd.DataFrame(trades), pd.DataFrame(sig_rows), pd.DataFrame(hold_rows),
                                    {"cost_multiplier": cost_multiplier,
                                     "open_positions": {s: theme_of.get(s) for s in port.positions}})
+
+
+def daily_rf(french: pd.DataFrame, calendar: pd.DatetimeIndex) -> pd.Series:
+    """Per-session risk-free rate: the month's French RF spread evenly over that month's sessions."""
+    cal = pd.Series(calendar, index=calendar)
+    month = calendar + pd.offsets.MonthEnd(0)
+    n = cal.groupby(month).transform("size")
+    rf = french["ff_rf"].reindex(month).to_numpy()
+    return pd.Series(np.nan_to_num(rf) / n.to_numpy(), index=calendar)
 
 
 def _trade(d, f) -> dict:
@@ -229,4 +242,25 @@ def success_table(port: pd.Series, index: pd.Series, port_2x: pd.Series, subperi
         "contribution_ann": annualized(port) - annualized(index.reindex(port.index)),
     }
     crit["passed"] = crit["c1_subperiods"] and crit["c2_drawdown"] and crit["c3_costs_2x"]
+    crit.update(contribution_stats(contrib))
     return {"subperiods": sub, "criteria": crit}
+
+
+def contribution_stats(contrib: pd.Series) -> dict:
+    """Arithmetic selection contribution, tracking error, information ratio, Newey-West t (lag 1) and the minimum
+    track-record length (months) needed for the observed IR to be significant at 95% one-sided
+    (Bailey & Lopez de Prado 2012)."""
+    from scipy.stats import kurtosis, skew
+
+    from src.themes.research.stats import nw_mean
+    c = contrib.dropna()
+    if len(c) < 12:
+        return {}
+    te = float(c.std(ddof=1) * np.sqrt(12))
+    ir_m = float(c.mean() / c.std(ddof=1)) if c.std(ddof=1) > 0 else np.nan
+    g3, g4 = float(skew(c)), float(kurtosis(c, fisher=False))
+    z = 1.645
+    min_trl = (1 + (1 - g3 * ir_m + (g4 - 1) / 4 * ir_m ** 2) * (z / ir_m) ** 2) if ir_m and ir_m > 0 else np.inf
+    return {"contribution_arith_ann": float(c.mean() * 12), "tracking_error_ann": te,
+            "information_ratio": ir_m * np.sqrt(12), "contribution_nw_t": nw_mean(c, 1)["t"],
+            "min_track_record_months": float(min_trl), "months": len(c)}

@@ -97,3 +97,12 @@ def test_oil_beta_trend_leakage_injection():
     o2.loc[o2.index > at] *= 0.1
     s2.loc[s2.index > at] *= 3
     pd.testing.assert_series_equal(base, oil_beta_trend_at(c2, s2, o2, at))
+
+
+def test_stage_unknown_when_no_usd_statements():
+    ocf = pd.Series({"A": np.nan, "B": np.nan, "C": 5.0})
+    rev = pd.Series({"A": np.nan, "B": np.nan, "C": 10.0})
+    assets = pd.Series({"A": np.nan, "B": 100.0, "C": 50.0})
+    theme = pd.Series({"A": "energy", "B": "energy", "C": "energy"})
+    st = stage_flags(ocf, rev, theme, 50e6, total_assets=assets)
+    assert st.to_dict() == {"A": "unknown", "B": "pre_profit", "C": "profitable"}
