@@ -111,3 +111,13 @@ def test_blank_check_filing_gives_no_membership():
     assert not is_blank_check("We were formerly a blank check company; we now build industrial robots.")
     rows = membership_rows("SPAC", "9", ROBO_STAGE_A, [filing("s1", "2021-02-10T15:00:00.000Z", spac)], CFG, SESSIONS)
     assert rows == []
+
+
+def test_multi_theme_one_primary_per_theme():
+    from src.themes.membership import choose_primaries
+    q = [{"theme": "ai", "subtheme": "ai_software", "density": 3.0, "method": "keywords"},
+         {"theme": "ai", "subtheme": "ai_compute", "density": 9.0, "method": "keywords"},
+         {"theme": "semiconductors", "subtheme": "semis_all", "density": 0.0, "method": "stage_a"}]
+    rows = choose_primaries(q, CFG)
+    assert CFG.classification.one_theme_per_firm is False
+    assert {(r["theme"], r["subtheme"]) for r in rows} == {("ai", "ai_compute"), ("semiconductors", "semis_all")}

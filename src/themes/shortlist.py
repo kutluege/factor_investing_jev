@@ -27,16 +27,19 @@ def load_overrides(path: Path = OVERRIDES_FILE) -> dict[str, set[str]]:
 
 def build_shortlist(cross: pd.DataFrame, cfg: ThemesConfig, held: dict[str, str], evidence: pd.DataFrame,
                     overrides: dict[str, set[str]] | None = None) -> pd.DataFrame:
-    """``cross``: eligible scored members on the latest date (index symbol; theme, subtheme, stage, score, grp_*).
-    ``held``: current holdings symbol -> theme. ``evidence``: symbol -> method, hits, matched, filing_accession."""
+    """``cross``: eligible scored members on the latest date (index symbol; theme, subtheme, stage, score, grp_*;
+    a symbol repeats once per theme in multi-theme mode). ``held``: current holdings symbol -> theme (or set of
+    themes). ``evidence``: index symbol with method, hits, matched, filing_accession (and theme when multi-theme)."""
     ov = overrides or {"include": set(), "exclude": set()}
+    held_themes = {s: ({v} if isinstance(v, str) else set(v)) for s, v in held.items()}
     blocked = entry_block(cross, cfg.portfolio.entry_block_top_vol_pct)
     rows = []
     for t, th in cfg.themes.items():
         if not th.enabled:
             continue
         ranked = cross[(cross["theme"] == t) & ~cross.index.isin(ov["exclude"])][["score", "subtheme"]]
-        held_t = {s for s, ht in held.items() if ht == t}
+        held_t = {s for s, ts in held_themes.items() if t in ts}
+        ct = cross[cross["theme"] == t]
         sig = select_theme(ranked, held_t, th.n_picks, cfg.portfolio.hold_buffer,
                            cfg.portfolio.max_share_per_subtheme, blocked)
         for s in ov["exclude"] & set(cross.index[cross["theme"] == t]):
@@ -46,15 +49,18 @@ def build_shortlist(cross: pd.DataFrame, cfg: ThemesConfig, held: dict[str, str]
                 sig[s] = "BUY"
         order = ranked["score"].rank(ascending=False, method="first")
         for s, x in sig.items():
-            r = cross.loc[s] if s in cross.index else pd.Series(dtype=object)
+            r = ct.loc[s] if s in ct.index else pd.Series(dtype=object)
             row = {"theme": t, "symbol": s, "signal": x, "rank_in_theme": order.get(s),
                    "subtheme": r.get("subtheme"), "stage": r.get("stage"), "score": r.get("score"),
                    "entry_blocked_top_vol": s in blocked,
                    "override": "include" if s in ov["include"] else "exclude" if s in ov["exclude"] else ""}
             for g in [c for c in cross.columns if c.startswith("grp_")]:
                 row[g] = r.get(g)
-            if s in evidence.index:
-                e = evidence.loc[s]
+            ev_s = evidence[evidence.index == s]
+            if "theme" in ev_s:
+                ev_s = ev_s[ev_s["theme"] == t]
+            if len(ev_s):
+                e = ev_s.iloc[0]
                 row.update({"evidence_method": e.get("method"), "evidence_hits": e.get("hits"),
                             "evidence_keywords": e.get("matched"), "evidence_10k": e.get("filing_accession")})
             rows.append(row)

@@ -27,8 +27,11 @@ def test_weights_must_sum_to_one(tmp_path):
 
 def test_disabled_theme_weight_is_redistributed(tmp_path):
     p = write(tmp_path, lambda c: c["themes"]["energy"].update(enabled=False))
-    w = load_themes_config(p).enabled_weights()
-    assert set(w) == {"robotics", "biotech"} and abs(w["robotics"] - 0.4 / 0.75) < 1e-12
+    cfg = load_themes_config(p)
+    w = cfg.enabled_weights()
+    raw = {k: t.weight for k, t in cfg.themes.items() if k != "energy"}
+    assert "energy" not in w and abs(sum(w.values()) - 1) < 1e-12
+    assert abs(w["robotics"] - raw["robotics"] / sum(raw.values())) < 1e-12
 
 
 def test_unknown_factor_and_group_rejected(tmp_path):

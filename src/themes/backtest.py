@@ -20,8 +20,10 @@ import pandas as pd
 from src.config import load_config
 from src.portfolio.book import CostModel, Order, Portfolio, SimulatedBroker
 from src.portfolio.rebalance import (
+    cap_total_weight,
     execute_targets,
     partial_rebalance,
+    present_budgets,
     select_theme,
     spread_cost_fn,
     theme_targets,
@@ -69,9 +71,9 @@ class ThemeBacktester:
         self.cfg = cfg
         cols = ["rebalance_date", "symbol", "theme", "subtheme", "stage", "vol_60d", "spread_est"]
         p = panel[panel["eligible"]][[c for c in cols if c in panel]]
-        sc = scores.drop(columns=[c for c in ("theme",) if c in scores])
-        self.cross = {d: g.set_index("symbol") for d, g in p.merge(sc, on=["rebalance_date", "symbol"],
-                                                                   how="left").groupby("rebalance_date")}
+        keys = ["rebalance_date", "symbol"] + (["theme"] if "theme" in scores else [])  # multi-theme rows
+        sc = scores if "theme" in scores else scores.drop(columns=[c for c in ("theme",) if c in scores])
+        self.cross = {d: g.set_index("symbol") for d, g in p.merge(sc, on=keys, how="left").groupby("rebalance_date")}
         self.dates = sorted(self.cross)
         self.open, self.close = open_px, close_px
         self.calendar = close_px.index
@@ -91,11 +93,12 @@ class ThemeBacktester:
         blocked: set[str] = set()
         if tilt.vol_block > 0:
             blocked = entry_block(cross, tilt.vol_block)
-        budgets = dict(tilt.budgets)
+        budgets = present_budgets(dict(tilt.budgets), set(cross["theme"]))
         parts = [theme_tilt_weights(g["score"], budgets.get(t, 0.0), tilt.lam, tilt.top_frac,
                                     self.cfg.portfolio.position_cap, blocked)
                  for t, g in cross.groupby("theme") if budgets.get(t, 0.0) > 0]
         target = pd.concat(parts).groupby(level=0).sum() if parts else pd.Series(dtype=float)
+        target = cap_total_weight(target, self.cfg.portfolio.position_cap)
         return partial_rebalance(current, target, tilt.speed)
 
     def run(self, cost_multiplier: float = 1.0, start: pd.Timestamp | None = None,
@@ -126,7 +129,8 @@ class ThemeBacktester:
                 d = trade_day[day]
                 cross = self.cross[d]
                 opens = self.open.loc[day]
-                extra = spread_cost_fn(ccfg, cross["spread_est"] if "spread_est" in cross else None, cost_multiplier)
+                spread = cross["spread_est"].groupby(level=0).first() if "spread_est" in cross else None
+                extra = spread_cost_fn(ccfg, spread, cost_multiplier)
                 keep: dict[str, list[str]] = {}
                 tilt_target = None
                 if tilt is not None:
@@ -134,8 +138,9 @@ class ThemeBacktester:
                                for s in port.positions}
                     tilt_target = self._tilt_target(tilt, cross, port, prices0, rebalance=n_reb % tilt.rebalance_months == 0)
                     n_reb += 1
+                    first_theme = cross["theme"].groupby(level=0).first()
                     for s in tilt_target.index:
-                        keep.setdefault(str(cross.at[s, "theme"]), []).append(s)
+                        keep.setdefault(str(first_theme.get(s)), []).append(s)
                 else:
                     sigs = monthly_signals(cross, cfg, {s: theme_of.get(s) for s in port.positions})
                     for t, sg in sigs.items():

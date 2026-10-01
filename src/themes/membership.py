@@ -22,7 +22,7 @@ MAX_VALIDITY_MONTHS = 18
 DDL = """CREATE TABLE IF NOT EXISTS theme_membership (
     cik VARCHAR, symbol VARCHAR, theme VARCHAR, subtheme VARCHAR, valid_from DATE, valid_to DATE,
     hits INTEGER, density DOUBLE, filing_accession VARCHAR, method VARCHAR, matched JSON,
-    PRIMARY KEY (symbol, filing_accession))"""
+    PRIMARY KEY (symbol, filing_accession, theme))"""
 
 
 def keyword_hits(text: str, keywords: list[str]) -> tuple[int, dict[str, int]]:
@@ -70,6 +70,18 @@ class FilingScore:
     acceptance: str
     words: int
     scores: dict[str, tuple[int, float, dict]] = field(default_factory=dict)  # subtheme -> (hits, density, matched)
+
+
+def choose_primaries(qualifying: list[dict], cfg: ThemesConfig) -> list[dict]:
+    """One row per firm (``one_theme_per_firm``) or, in multi-theme mode (v2), one primary subtheme per theme."""
+    if not qualifying:
+        return []
+    if cfg.classification.one_theme_per_firm:
+        return [choose_primary(qualifying, cfg)]
+    by_theme: dict[str, list[dict]] = {}
+    for q in qualifying:
+        by_theme.setdefault(q["theme"], []).append(q)
+    return [choose_primary(v, cfg) for v in by_theme.values()]
 
 
 def choose_primary(qualifying: list[dict], cfg: ThemesConfig) -> dict | None:
@@ -120,13 +132,11 @@ def membership_rows(symbol: str, cik: str, stage_a: list[dict], filings: list[di
             if hits >= sub.min_hits:
                 qualifying.append({**m, "hits": hits, "density": density(hits, f.get("item1_words", 0)),
                                    "matched": matched, "method": "keywords"})
-        best = choose_primary(qualifying, cfg)
-        if best is None:
-            continue
-        rows.append({"cik": cik, "symbol": symbol, "theme": best["theme"], "subtheme": best["subtheme"],
-                     "valid_from": vf.date(), "valid_to": pd.Timestamp(vt).date(), "hits": int(best["hits"]),
-                     "density": float(best["density"]), "filing_accession": f["accession"],
-                     "method": best["method"], "matched": json.dumps(best["matched"])})
+        for best in choose_primaries(qualifying, cfg):
+            rows.append({"cik": cik, "symbol": symbol, "theme": best["theme"], "subtheme": best["subtheme"],
+                         "valid_from": vf.date(), "valid_to": pd.Timestamp(vt).date(), "hits": int(best["hits"]),
+                         "density": float(best["density"]), "filing_accession": f["accession"],
+                         "method": best["method"], "matched": json.dumps(best["matched"])})
     return rows
 
 

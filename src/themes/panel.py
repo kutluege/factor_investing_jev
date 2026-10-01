@@ -110,38 +110,47 @@ def build_theme_panel(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, dates: 
     ucfg = cfg.universe
     frames = []
     for d in dates:
-        mem = members_on(membership, d).drop_duplicates("symbol").set_index("symbol")
-        cross = pf[(pf["rebalance_date"] == d) & pf["symbol"].isin(mem.index)].set_index("symbol")
+        # multi-theme (v2): one membership row per (symbol, theme); symbol-level features are computed once
+        mem = members_on(membership, d).drop_duplicates(["symbol", "theme"])
+        cross = pf[(pf["rebalance_date"] == d) & pf["symbol"].isin(set(mem["symbol"]))].set_index("symbol")
         if cross.empty:
             continue
         snap = asof_join_snapshots(snaps, cik_by_symbol, d, cross.index.tolist())
         feats, mcap = compute_fundamental_features(snap, cross["raw_close"], splits, d)
-        f = cross.join(feats, how="left")
-        f["market_cap"] = mcap.reindex(f.index)
-        f["fundamental_availability_date"] = snap["availability_date"].reindex(f.index)             if "availability_date" in snap else pd.NaT
-        f["membership_valid_from"] = mem["valid_from"].reindex(f.index)
-        f["theme"] = mem["theme"].reindex(f.index)
-        f["subtheme"] = mem["subtheme"].reindex(f.index)
-        assets = snap["total_assets"].reindex(f.index) if "total_assets" in snap else pd.Series(np.nan, index=f.index)
+        base = cross.join(feats, how="left")
+        base["market_cap"] = mcap.reindex(base.index)
+        base["fundamental_availability_date"] = (snap["availability_date"].reindex(base.index)
+                                                 if "availability_date" in snap else pd.NaT)
+        assets = snap["total_assets"].reindex(base.index) if "total_assets" in snap else \
+            pd.Series(np.nan, index=base.index)
+        base["beta_252d"] = beta_252d_at(mats["close"][base.index], market, d) if market is not None else np.nan
+        base["size_ln_mcap"] = size_ln_mcap(base["market_cap"])
+        m = mem.loc[mem["symbol"].isin(base.index), ["symbol", "theme", "subtheme", "valid_from"]]
+        f = m.rename(columns={"valid_from": "membership_valid_from"}).merge(
+            base, left_on="symbol", right_index=True, how="left").reset_index(drop=True)
         f["stage"] = stage_flags(f["ocf_ttm"], f["revenue_ttm"], f["theme"], cfg.stage.biotech_commercial_revenue_usd,
-                                 total_assets=assets)
+                                 total_assets=pd.Series(assets.reindex(f["symbol"]).to_numpy(), index=f.index))
         f["profitable_growth"] = np.nan
         for _, idx in f.groupby("theme").groups.items():
             g = f.loc[idx]
             f.loc[idx, "profitable_growth"] = profitable_growth(g["revenue_yoy"], g["fcf_margin"], g["stage"])
-        f["beta_252d"] = beta_252d_at(mats["close"][f.index], market, d) if market is not None else np.nan
-        f["size_ln_mcap"] = size_ln_mcap(f["market_cap"])
-        oilers = f.index[f["subtheme"] == OIL_SUBTHEME]
         f["oil_beta_trend"] = np.nan
-        if len(oilers) and not oil.empty and market is not None:
-            f.loc[oilers, "oil_beta_trend"] = oil_beta_trend_at(mats["close"][oilers], market, oil, d)
+        oil_rows = f.index[f["subtheme"] == OIL_SUBTHEME]
+        if len(oil_rows) and not oil.empty and market is not None:
+            oil_syms = sorted(set(f.loc[oil_rows, "symbol"]))
+            ob = oil_beta_trend_at(mats["close"][oil_syms], market, oil, d)
+            f.loc[oil_rows, "oil_beta_trend"] = f.loc[oil_rows, "symbol"].map(ob).to_numpy()
         if events:
-            bench_of = pd.Series({s: theme_benchmark_for(cfg, t, d, etf_close) for s, t in f["theme"].items()})
-            allr = pd.concat([rets[f.index], etf_rets], axis=1)
-            ef = earnings_features_at({s: events[s] for s in f.index if s in events}, allr, bench_of, d)
-            f = f.join(ef, how="left")
+            f["ear_3d"], f["sue_announce"] = np.nan, np.nan
+            allr = pd.concat([rets[sorted(set(f["symbol"]))], etf_rets], axis=1)
+            for t, g in f.groupby("theme"):
+                syms = sorted(set(g["symbol"]))
+                bench_of = pd.Series(theme_benchmark_for(cfg, t, d, etf_close), index=syms)
+                ef = earnings_features_at({x: events[x] for x in syms if x in events}, allr, bench_of, d)
+                for col in ("ear_3d", "sue_announce"):
+                    f.loc[g.index, col] = g["symbol"].map(ef[col]).to_numpy() if col in ef else np.nan
         f["rebalance_date"] = d
-        frames.append(f.reset_index())
+        frames.append(f)
     if not frames:
         raise RuntimeError("no theme members with prices on any rebalance date")
     panel = pd.concat(frames, ignore_index=True)

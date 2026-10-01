@@ -80,7 +80,7 @@ def run_search(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, n_trials: int,
     chosen = next(c for c in configs if c.key == ev["selected"])
 
     # exact validation of the selected configuration (execution at next open, full cost model, RF on cash)
-    sc = si.df[["rebalance_date", "symbol"]].assign(score=si.scores(dict(chosen.group_mult)))
+    sc = si.df[["rebalance_date", "symbol", "theme"]].assign(score=si.scores(dict(chosen.group_mult)))
     bt = ThemeBacktester(panel, sc, cfg, md.mats["open"], md.mats["close"], haircuts=haircut)
     ex1, ex2 = bt.run(1.0, START, rfd, tilt=chosen), bt.run(2.0, START, rfd, tilt=chosen)
     rdates = [d for d in bt.dates if d >= START]

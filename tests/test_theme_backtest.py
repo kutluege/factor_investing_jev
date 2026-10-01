@@ -82,7 +82,7 @@ def test_backtest_runs_invests_and_costs_hurt():
     sig = r1.signals
     assert set(sig["signal"]) <= {"BUY", "HOLD", "SELL", "WAIT"}
     first = sig[sig["rebalance_date"] == dates[0]]
-    n_expected = sum(t.n_picks for t in CFG.themes.values() if t.enabled)
+    n_expected = sum(t.n_picks for k, t in CFG.themes.items() if t.enabled and k in set(panel["theme"]))
     blocked = int(np.ceil(0.03 * 90))
     assert n_expected - blocked <= (first["signal"] == "BUY").sum() <= n_expected
     assert r2.equity.iloc[-1] < r1.equity.iloc[-1]

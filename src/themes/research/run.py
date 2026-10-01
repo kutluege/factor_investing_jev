@@ -80,7 +80,8 @@ def applicable(panel: pd.DataFrame, cfg: ThemesConfig, factor: str) -> pd.Series
 
 
 def scopes(panel: pd.DataFrame, cfg: ThemesConfig) -> list[tuple[str, str, pd.DataFrame]]:
-    out = [("havuz", "pooled", panel)]
+    # pooled scope: a stock that belongs to several themes is counted once per date
+    out = [("havuz", "pooled", panel.drop_duplicates(["rebalance_date", "symbol"]))]
     min_n = cfg.research.min_names_per_date
     for t in cfg.themes:
         p = panel[panel["theme"] == t]
@@ -192,7 +193,8 @@ def run_research(panel: pd.DataFrame, scores: pd.DataFrame, cfg: ThemesConfig, f
                  factors: list[str] | None = None) -> dict:
     start = pd.Timestamp(cfg.research.subperiods[0][0])
     p = panel[panel["eligible"] & (panel["rebalance_date"] >= start)]
-    p = p.merge(scores[["rebalance_date", "symbol", "score"]], on=["rebalance_date", "symbol"], how="left")
+    keys = ["rebalance_date", "symbol", "theme"]  # multi-theme rows (v2)
+    p = p.merge(scores[keys + ["score"]], on=keys, how="left")
     factors = factors or sorted(factor_directions(cfg))
     dates = pd.DatetimeIndex(sorted(p["rebalance_date"].unique()))
     regimes = A.regime_masks(dates, market_close, vix_close)

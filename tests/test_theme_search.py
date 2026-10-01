@@ -80,7 +80,7 @@ def test_recomputed_scores_match_scoring_module_with_unit_weights(world):
 
 def test_index_replica_tracks_benchmark_minus_costs(world):
     _, _, si, pdata = world
-    budgets = tuple(sorted(CFG.enabled_weights().items()))
+    budgets = tuple(sorted(CFG.enabled_weights().items()))  # themes absent from the market are re-normalized away
     replica = SearchConfig(tuple((g, 1.0) for g in si.groups), 0.0, 1.0, budgets, 1.0, 1, 0.0)
     out = simulate(replica, si, pdata, position_cap=0.08)
     gap = (out["gross"] - out["benchmark"]).iloc[1:]  # drifted vs re-equal-weighted: small
@@ -151,3 +151,13 @@ def test_fast_engine_agrees_with_exact_backtester():
     common = er.index.intersection(fr.index)[1:]
     assert abs(er[common].mean() - fr[common].mean()) * 12 < 0.01
     assert np.corrcoef(er[common], fr[common])[0, 1] > 0.9
+
+
+def test_present_budgets_and_cross_theme_cap():
+    from src.portfolio.rebalance import cap_total_weight, present_budgets
+    b = present_budgets({"a": 0.5, "b": 0.3, "c": 0.2}, {"a", "c"})
+    assert b == pytest.approx({"a": 0.5 / 0.7, "c": 0.2 / 0.7})
+    assert present_budgets({"a": 1.0}, set()) == {}
+    t = pd.Series({"NVDA": 0.12, "X": 0.04, "Y": 0.04, "Z": 0.04, "W": 0.04})  # NVDA held via three themes
+    capped = cap_total_weight(t, 0.08)
+    assert capped.max() <= 0.08 + 1e-12 and capped.sum() == pytest.approx(t.sum())

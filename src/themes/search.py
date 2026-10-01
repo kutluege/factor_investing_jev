@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from src.backtest.validation import deflated_sharpe, pbo_cscv
-from src.portfolio.rebalance import partial_rebalance, theme_tilt_weights
+from src.portfolio.rebalance import cap_total_weight, partial_rebalance, present_budgets, theme_tilt_weights
 from src.themes.config import ThemesConfig
 
 MAD_SCALE = 1.4826
@@ -88,7 +88,8 @@ class ScoreInputs:
         el = panel[panel["eligible"]][["rebalance_date", "symbol", "theme", "subtheme", "stage", "vol_60d",
                                        "spread_est"]]
         grp_cols = [c for c in scores.columns if c.startswith("grp_")]
-        df = el.merge(scores[["rebalance_date", "symbol"] + grp_cols], on=["rebalance_date", "symbol"], how="left")
+        keys = ["rebalance_date", "symbol", "theme"]  # multi-theme: one row per (symbol, theme)
+        df = el.merge(scores[keys + grp_cols], on=keys, how="left")
         self.groups = [c[4:] for c in grp_cols]
         combos = df[["theme", "stage", "subtheme"]].drop_duplicates()
         need = {}
@@ -166,7 +167,7 @@ class PeriodData:
 
 def tilt_targets(cross: pd.DataFrame, cfg: SearchConfig, position_cap: float) -> pd.Series:
     """Target weights on one date. ``cross``: eligible members with symbol, theme, score, vol_60d columns."""
-    budgets = dict(cfg.budgets)
+    budgets = present_budgets(dict(cfg.budgets), set(cross["theme"]))
     blocked: set[str] = set()
     if cfg.vol_block > 0:
         v = cross.set_index("symbol")["vol_60d"].dropna()
@@ -175,7 +176,7 @@ def tilt_targets(cross: pd.DataFrame, cfg: SearchConfig, position_cap: float) ->
                                 blocked)
              for t, g in cross.groupby("theme") if budgets.get(t, 0) > 0]
     target = pd.concat(parts) if parts else pd.Series(dtype=float)
-    return target.groupby(level=0).sum()
+    return cap_total_weight(target.groupby(level=0).sum(), position_cap)  # multi-theme names: total cap
 
 
 def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap: float, capital: float = 100_000.0,
@@ -203,7 +204,7 @@ def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap
         if len(traded):
             half = pd.Series(0.0, index=traded.index)
             if pdata.spread_on and cross is not None:
-                sp = cross.set_index("symbol")["spread_est"].reindex(traded.index)
+                sp = cross.drop_duplicates("symbol").set_index("symbol")["spread_est"].reindex(traded.index)
                 half = (0.5 * sp).clip(upper=pdata.spread_cap).fillna(0.0)
             cost = float((traded * (pdata.unit_cost + half)).sum() + len(traded) * pdata.commission / capital)
             cost *= cost_multiplier

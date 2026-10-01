@@ -184,3 +184,22 @@ def partial_rebalance(current: pd.Series, target: pd.Series, speed: float) -> pd
     out = cur + speed * (tgt - cur)
     out[~names.isin(target.index)] = 0.0
     return out[out > 1e-9]
+
+
+def present_budgets(budgets: dict[str, float], present: set[str]) -> dict[str, float]:
+    """Theme budgets re-normalized over the themes that have eligible members on the date, so a theme without
+    members (e.g. quantum in 2011) does not leave its budget in cash (v2; the benchmark composite re-weights the
+    same way)."""
+    live = {t: w for t, w in budgets.items() if t in present and w > 0}
+    tot = sum(live.values())
+    return {t: w / tot * sum(budgets.values()) for t, w in live.items()} if tot > 0 else {}
+
+
+def cap_total_weight(target: pd.Series, cap: float) -> pd.Series:
+    """Multi-theme holdings (v2): a stock held through several themes is capped at ``cap`` of capital in total;
+    the excess is redistributed pro rata to the other names (total invested weight unchanged when feasible)."""
+    target = target[target > 0]
+    total = float(target.sum())
+    if target.empty or (target <= cap + 1e-12).all():
+        return target
+    return cap_weights(target / total, cap / total) * total

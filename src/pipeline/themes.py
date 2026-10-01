@@ -454,7 +454,7 @@ def t6_backtest(db: str = typer.Option(None), start: str = "2011-06-30",
     prev = [d for d in bt.dates if d < last][-1]
     held = {r.symbol: r.theme for r in h[h["rebalance_date"] == prev].itertuples()}
     cross = bt.cross[last]
-    ev = members_on(membership_frame_full(ctx.con), last).drop_duplicates("symbol").set_index("symbol")
+    ev = members_on(membership_frame_full(ctx.con), last).drop_duplicates(["symbol", "theme"]).set_index("symbol")
     sl_df = build_shortlist(cross, cfg, held, ev, load_overrides())
     sl_df.to_csv(out / f"shortlist_{last.date()}{sfx}.csv", index=False)
     (out / f"shortlist_{last.date()}{sfx}.md").write_text(shortlist_markdown(sl_df, last, cfg), encoding="utf-8")
@@ -590,7 +590,7 @@ def forward(db: str = typer.Option(None), eval_months: int = 36) -> None:
                       tuple(sorted(c["budgets"].items())), c["speed"], c["rebalance_months"], c["vol_block"])
     cross = si.df.assign(score=si.scores(c["group_mult"]))
     tv2 = tilt_targets(cross, sc, cfg.portfolio.position_cap)
-    info = cross.set_index("symbol")
+    info = cross.drop_duplicates("symbol").set_index("symbol")  # first theme for reporting (multi-theme names)
     n2 = F.record(ctx.con, "v2_selected", d, pd.DataFrame({"symbol": tv2.index, "theme": info.loc[tv2.index, "theme"],
                                                            "weight": tv2.to_numpy(),
                                                            "score": info.loc[tv2.index, "score"].to_numpy()}))
@@ -599,14 +599,16 @@ def forward(db: str = typer.Option(None), eval_months: int = 36) -> None:
                            "snapshot_date < ? ORDER BY snapshot_date DESC", [d.date()]).df()
     held = dict(zip(prev["symbol"], prev["theme"], strict=False)) if len(prev) else {}
     c1 = panel[(panel["rebalance_date"] == d) & panel["eligible"]].merge(
-        scores[["symbol", "score"] + [x for x in scores.columns if x.startswith("grp_")]], on="symbol").set_index("symbol")
+        scores[["symbol", "theme", "score"] + [x for x in scores.columns if x.startswith("grp_")]],
+        on=["symbol", "theme"]).set_index("symbol")
     sigs = monthly_signals(c1, cfg, held)
     keep = {t: [s for s, x in sg.items() if x in ("HOLD", "BUY")] for t, sg in sigs.items()}
     tv1 = theme_targets(keep, cfg.enabled_weights(), {t: th.n_picks for t, th in cfg.themes.items()},
                         cfg.portfolio.position_cap)
-    n1 = F.record(ctx.con, "v1r2_topn", d, pd.DataFrame({"symbol": tv1.index, "theme": c1.loc[tv1.index, "theme"],
+    c1u = c1[~c1.index.duplicated()]
+    n1 = F.record(ctx.con, "v1r2_topn", d, pd.DataFrame({"symbol": tv1.index, "theme": c1u.loc[tv1.index, "theme"],
                                                          "weight": tv1.to_numpy(),
-                                                         "score": c1.loc[tv1.index, "score"].to_numpy()}))
+                                                         "score": c1u.loc[tv1.index, "score"].to_numpy()}))
     print_json("forward", {"snapshot_date": str(d.date()), "v2_names": n2, "v1r2_names": n1,
                            "v2_frozen_new": meta["new"], "evaluation_date": str(meta["evaluation_date"])})
 

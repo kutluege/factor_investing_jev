@@ -76,8 +76,9 @@ def run_t3(ctx: Context, sec, cfg: ThemesConfig) -> dict:
         if (i + 1) % 500 == 0:
             ctx.step("t3", f"{i + 1}/{len(cands)} companies, {len(rows)} membership rows")
     df = pd.DataFrame(rows)
-    ctx.con.execute("DELETE FROM theme_membership")
-    upsert_df(ctx.con, "theme_membership", df, ["symbol", "filing_accession"])
+    ctx.con.execute("DROP TABLE IF EXISTS theme_membership")  # schema may change (multi-theme key, v2)
+    ctx.con.execute(DDL)
+    upsert_df(ctx.con, "theme_membership", df, ["symbol", "filing_accession", "theme"])
     out_dir = PROJECT_ROOT / "research" / "themes"
     me = pd.date_range("2011-06-30", sess[-1], freq="ME")
     counts = pd.DataFrame([{"date": d.date(), **{f"{t}/{s}": n for (t, s), n in

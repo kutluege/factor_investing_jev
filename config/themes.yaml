@@ -30,9 +30,9 @@ classification:
   valid_from: acceptance_plus_1_session   # 16:00 ET sonrası kabul → ertesi seans
   valid_until: next_10k_or_18_months      # yeni 10-K yoksa 18 ay sonra üyelik düşer
   match: case_insensitive_substring
-  one_theme_per_firm: true
+  one_theme_per_firm: false        # v2: çoklu tema üyeliği (kullanıcı kararı 2026-10-01)
   primary_subtheme: highest_hit_density   # birden çok alt temaya uyarsa
-  theme_tie_priority: [biotech, energy, robotics]
+  theme_tie_priority: [biotech, energy, robotics, semiconductors, ai, cyber_cloud, defense_space]
   review_file: research/themes/membership_review.csv
   live_manual_overrides: true     # include/exclude sadece canlı listede
   backtest_manual_overrides: false
@@ -97,8 +97,8 @@ themes:
 
   robotics:
     enabled: true
-    weight: 0.40
-    n_picks: 8
+    weight: 0.15                   # v2 bütçeleri: 6 tema × 0,15 + savunma/uzay 0,10 (arama bütçeyi arar)
+    n_picks: 6
     benchmarks: [ROBO, BOTZ]   # ETF başlangıç tarihlerine dikkat (BOTZ 2016)
     subthemes:
       industrial_automation:
@@ -136,8 +136,8 @@ themes:
 
   biotech:
     enabled: true
-    weight: 0.35
-    n_picks: 7
+    weight: 0.15
+    n_picks: 6
     benchmarks: [XBI, IBB]
     split: stage                   # clinical vs commercial ayrı faktör seti
     subthemes:
@@ -149,7 +149,7 @@ themes:
 
   energy:
     enabled: true
-    weight: 0.25
+    weight: 0.15
     n_picks: 6
     benchmarks: [XLE, XLU, ICLN]
     subthemes:
@@ -183,6 +183,109 @@ themes:
         keywords: ["solar", "photovoltaic", "wind turbine", "energy storage",
                    "battery storage", "hydrogen", "fuel cell", "geothermal"]
         min_hits: 5
+
+  # ---------------------------------------------------------------------------
+  # v2 genişleme (kullanıcı kararı 2026-10-01): AI, yarı iletken, siber+bulut, savunma/uzay/kuantum.
+  # Geniş kapsama + metin kontrolü: aday havuzu (sanayi/SIC) içinde 10-K Item 1 anahtar kelime eşiği; düşük
+  # eşikler yüksek geri çağırma içindir, isabet T3r ile ölçülür. Çoklu tema üyeliği açık.
+  # ---------------------------------------------------------------------------
+  ai:
+    enabled: true
+    weight: 0.15
+    n_picks: 6
+    benchmarks: [AIQ]
+    subthemes:
+      ai_compute:
+        fmp_industries: ["Semiconductors", "Computer Hardware", "Hardware, Equipment & Parts",
+                         "Communication Equipment"]
+        sic: [3571, 3572, 3576, 3577, 3661, 3663, 3672, 3674]
+        keywords: ["artificial intelligence", "machine learning", "generative ai", "accelerated computing",
+                   "large language model", "neural network", "ai accelerator", "ai workloads", "ai inference",
+                   "ai training"]
+        min_hits: 2
+      ai_infrastructure:
+        fmp_industries: ["Electrical Equipment & Parts", "Industrial - Machinery", "Engineering & Construction",
+                         "Information Technology Services", "Telecommunications Services", "REIT - Specialty",
+                         "Computer Hardware", "Communication Equipment"]
+        sic: [1731, 3585, 3612, 3613, 3621, 4813, 6798, 7374]
+        keywords: ["data center", "artificial intelligence", "ai workloads", "high-performance computing",
+                   "hyperscale", "liquid cooling", "ai infrastructure"]
+        min_hits: 3
+      ai_software:
+        fmp_industries: ["Software - Application", "Software - Infrastructure", "Software - Services",
+                         "Internet Content & Information", "Information Technology Services",
+                         "Electronic Gaming & Multimedia", "Advertising Agencies"]
+        sic: [7370, 7371, 7372, 7373, 7374]
+        keywords: ["artificial intelligence", "machine learning", "generative ai", "large language model",
+                   "ai-powered", "ai platform", "ai models", "ai agents", "agentic", "computer vision",
+                   "natural language processing"]
+        min_hits: 3
+
+  semiconductors:
+    enabled: true
+    weight: 0.15
+    n_picks: 6
+    benchmarks: [SMH, SOXX]
+    subthemes:
+      semis_all:
+        fmp_industries: ["Semiconductors"]
+        sic: [3674]
+        keywords: []               # sanayi/SIC yeterli: tüm yarı iletken firmaları
+        min_hits: 0
+      semi_equipment:
+        fmp_industries: ["Industrial - Machinery", "Hardware, Equipment & Parts", "Electrical Equipment & Parts",
+                         "Technology Distributors"]
+        sic: [3559, 3699, 3825, 3827, 3829]
+        keywords: ["semiconductor", "wafer", "lithography", "wafer fab", "photomask"]
+        min_hits: 5
+
+  cyber_cloud:
+    enabled: true
+    weight: 0.15
+    n_picks: 6
+    benchmarks: [CIBR, SKYY, IGV]
+    subthemes:
+      cybersecurity:
+        fmp_industries: ["Software - Infrastructure", "Software - Application", "Information Technology Services",
+                         "Security & Protection Services", "Communication Equipment"]
+        sic: [3577, 7372, 7373, 7374]
+        keywords: ["cybersecurity", "cyber security", "threat detection", "zero trust", "endpoint security",
+                   "firewall", "identity security", "security operations", "threat intelligence",
+                   "network security"]
+        min_hits: 5
+      cloud_saas:
+        fmp_industries: ["Software - Application", "Software - Infrastructure", "Software - Services",
+                         "Internet Content & Information", "Information Technology Services"]
+        sic: [7370, 7371, 7372, 7373, 7374]
+        keywords: ["software-as-a-service", "saas", "cloud-based", "cloud platform", "subscription revenue",
+                   "multi-tenant", "cloud infrastructure", "cloud computing"]
+        min_hits: 3
+
+  defense_space:
+    enabled: true
+    weight: 0.10
+    n_picks: 6
+    benchmarks: [ITA, UFO, QTUM]
+    subthemes:
+      defense:
+        fmp_industries: ["Aerospace & Defense", "Security & Protection Services", "Communication Equipment",
+                         "Information Technology Services", "Engineering & Construction"]
+        sic: [3480, 3482, 3483, 3484, 3489, 3721, 3724, 3728, 3760, 3761, 3795, 3812, 8711]
+        keywords: ["department of defense", "u.s. army", "u.s. navy", "u.s. air force", "military", "defense"]
+        min_hits: 5
+      space:
+        fmp_industries: ["Aerospace & Defense", "Communication Equipment", "Telecommunications Services",
+                         "Information Technology Services", "Hardware, Equipment & Parts"]
+        sic: [3663, 3760, 3761, 3764, 3769, 3812, 4899]
+        keywords: ["satellite", "spacecraft", "launch vehicle", "low earth orbit", "space station", "in-orbit",
+                   "space-based"]
+        min_hits: 5
+      quantum:
+        fmp_industries: ["Computer Hardware", "Software - Infrastructure", "Semiconductors",
+                         "Hardware, Equipment & Parts", "Information Technology Services"]
+        sic: [3571, 3572, 3577, 3674, 7372, 7373]
+        keywords: ["quantum computing", "quantum computer", "qubit", "quantum processor"]
+        min_hits: 3
 
 # -----------------------------------------------------------------------------
 # FAKTÖR SETLERİ (literatüre dayalı, sonuç görülmeden SABİTLENDİ)
@@ -219,3 +322,15 @@ theme_factor_map:
     profitable: energy_profitable
     subtheme_extra:
       oil_gas: [commodity]          # sadece petrol/gaz alt temasında
+  ai:
+    pre_profit: pre_profit
+    profitable: profitable_general
+  semiconductors:
+    pre_profit: pre_profit
+    profitable: profitable_general
+  cyber_cloud:
+    pre_profit: pre_profit
+    profitable: profitable_general
+  defense_space:
+    pre_profit: pre_profit
+    profitable: profitable_general
