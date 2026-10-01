@@ -1,0 +1,27 @@
+a,b,pearson,spearman,note,scope
+cop_at,ocf_ev,0.68012625233141,0.7762024132892806,,havuz
+ebit_ev,ocf_ev,0.7068108303134996,0.7363281708466914,,havuz
+idio_vol_60d,max_ret_21d,0.685155329174161,0.7933031587184323,,havuz
+cash_runway_years,cop_at,0.8114362619273786,0.6780156419405715,,robotics
+cash_runway_years,ebit_ev,0.7098280792457095,0.6343933798008226,,robotics
+cash_runway_years,ocf_ev,0.751357867579919,0.675941077562631,,robotics
+droe,sue,0.5515911964034484,0.7365155480905418,Spearman >> Pearson: doğrusal olmayan monoton ilişki,robotics
+ebit_ev,ocf_ev,0.8176364539066434,0.8458129230343425,,robotics
+cash_runway_years,cop_at,0.8473983476980277,0.8732409961535128,,biotech
+cash_runway_years,ocf_ev,0.6152887410757034,0.8008623053737068,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+cop_at,ebit_ev,0.5187233959901221,0.7644454198487466,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+cop_at,ocf_ev,0.631037584829216,0.8522340332779795,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech
+ebit_ev,ocf_ev,0.8662006789951244,0.8705071661963812,,biotech
+cash_runway_years,cop_at,0.8473983476980277,0.8732409961535128,,biotech/biotech_all
+cash_runway_years,ocf_ev,0.6152887410757034,0.8008623053737068,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+cop_at,ebit_ev,0.5187233959901221,0.7644454198487466,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+cop_at,ocf_ev,0.631037584829216,0.8522340332779795,Spearman >> Pearson: doğrusal olmayan monoton ilişki,biotech/biotech_all
+ebit_ev,ocf_ev,0.8662006789951244,0.8705071661963812,,biotech/biotech_all
+droe,sue,0.4945387862740152,0.810076599244197,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy
+idio_vol_60d,max_ret_21d,0.7593131065725474,0.8201524061279908,,energy
+droe,sue,0.4978676782454672,0.7874889330274618,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/oil_gas
+idio_vol_60d,max_ret_21d,0.6897911172826375,0.7344499435807259,,energy/oil_gas
+cash_runway_years,profitable_growth,0.7155534703143334,0.6250411151070984,,energy/power_utilities
+droe,sue,0.6020998885665324,0.8300484280721464,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/power_utilities
+droe,sue,0.5842503301193874,0.8025588958202419,Spearman >> Pearson: doğrusal olmayan monoton ilişki,energy/renewables
+idio_vol_60d,max_ret_21d,0.8127040378744597,0.7853905899974701,,energy/renewables
