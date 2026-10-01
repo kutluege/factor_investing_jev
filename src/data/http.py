@@ -142,7 +142,7 @@ class CachedHttpClient:
             started = time.perf_counter()
             try:
                 resp = self._client.get(url, params=params)
-            except httpx.TransportError as exc:
+            except (httpx.TransportError, httpx.DecodingError) as exc:  # corrupt gzip bodies are transient too
                 latency = (time.perf_counter() - started) * 1000
                 self.stats.errors += 1
                 self._log(endpoint, None, False, latency, type(exc).__name__)
@@ -192,7 +192,7 @@ class CachedHttpClient:
             started = time.perf_counter()
             try:
                 resp = self._client.get(url)
-            except httpx.TransportError as exc:
+            except (httpx.TransportError, httpx.DecodingError) as exc:  # corrupt gzip bodies are transient too
                 self._log(endpoint, None, False, (time.perf_counter() - started) * 1000, type(exc).__name__)
                 if attempt >= self.max_retries:
                     raise ApiError(self.provider, None, f"transport error: {exc}", retryable=True) from exc

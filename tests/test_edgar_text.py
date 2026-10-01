@@ -114,3 +114,15 @@ def test_retry_not_found_refetches_only_when_asked(tmp_path):
     assert fetch_item1(FakeSec(), f, tmp_path)["status"] == "item1_not_found" and FakeSec.calls == 0
     assert fetch_item1(FakeSec(), f, tmp_path, retry_not_found=True)["status"] == "ok" and FakeSec.calls == 1
     assert fetch_item1(FakeSec(), f, tmp_path, retry_not_found=True)["status"] == "ok" and FakeSec.calls == 1
+
+
+def test_unexpected_fetch_error_is_reported_not_raised(tmp_path):
+    f = Filing("0000000002", "0000000002-24-000001", "10-K", "2024-02-15", "2024-02-15T21:00:00.000Z",
+               "2023-12-31", "k.htm")
+
+    class Broken:
+        def get_text(self, url, endpoint):
+            raise RuntimeError("corrupt body")
+
+    rec = fetch_item1(Broken(), f, tmp_path)
+    assert rec["status"].startswith("fetch_failed") and not any(tmp_path.rglob("*.json.gz"))

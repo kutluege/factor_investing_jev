@@ -215,6 +215,8 @@ def fetch_item1(sec: SecClient, f: Filing, cache_dir: Path = CACHE_DIR, retry_no
         status = "ok" if item1 else "item1_not_found"
     except ApiError as exc:
         item1, status, text = None, f"fetch_failed: {exc}"[:200], ""
+    except Exception as exc:  # noqa: BLE001 - one malformed filing must not stop a multi-hour run (not cached)
+        item1, status, text = None, f"fetch_failed: {type(exc).__name__}: {exc}"[:200], ""
     rec = {"cik": f.cik, "accession": f.accession, "form": f.form, "filing_date": f.filing_date,
            "acceptance": f.acceptance, "report_date": f.report_date, "primary_document": f.primary_document,
            "status": status, "doc_words": word_count(text) if text else 0,
