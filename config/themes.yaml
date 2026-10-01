@@ -115,7 +115,7 @@ themes:
                    # v2 genişletme (2026-10-01, yalnızca sınıflandırma kanıtıyla: log-odds + T3r)
                    "industrial automation", "discrete automation", "process automation", "automation products",
                    "autonomous mobile robot", "humanoid", "robotic arm"]
-        min_hits: 3                  # v2: 5 → 3 (aday havuzunda 22 → 47 firma)
+        min_hits: 5                  # v2 Kapı 2 revizyonu: 3 → 5 (genişletilmiş sanayilerde 3 isabet gürültülü)
       surgical_medical:
         fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies",
                          "Medical - Equipment & Services", "Medical - Specialties"]    # v2 genişletme 2
@@ -138,7 +138,7 @@ themes:
                          "Electrical Equipment & Parts", "Computer Hardware"]    # v2 genişletme 2
         sic: [3621, 3674, 3679, 3825, 3829]
         keywords: ["robot"]        # "robotic", "robotics" da eşleşir
-        min_hits: 5                # v2: 8 → 5 (aday havuzunda ~10 → 22 firma); genel çip firmaları hâlâ elenir
+        min_hits: 8                # v2 Kapı 2 revizyonu: 5 → 8 (genel çip firmalarında 'robot' geçiyor)
 
   biotech:
     enabled: true
@@ -249,7 +249,8 @@ themes:
         fmp_industries: ["Industrial - Machinery", "Hardware, Equipment & Parts", "Electrical Equipment & Parts",
                          "Technology Distributors"]
         sic: [3559, 3699, 3825, 3827, 3829]
-        keywords: ["semiconductor", "wafer", "lithography", "wafer fab", "photomask"]
+        keywords: ["wafer", "lithography", "wafer fab", "photomask", "semiconductor equipment",
+                   "semiconductor manufacturing equipment", "deposition", "etch"]   # v2 revizyonu: genel "semiconductor" çıkarıldı
         min_hits: 5
 
   cyber_cloud:
@@ -265,7 +266,7 @@ themes:
         keywords: ["cybersecurity", "cyber security", "threat detection", "zero trust", "endpoint security",
                    "firewall", "identity security", "security operations", "threat intelligence",
                    "network security"]
-        min_hits: 5
+        min_hits: 8                # v2 Kapı 2 revizyonu: 5 → 8 (BT bayileri, ATM üreticileri elendi)
       cloud_saas:
         fmp_industries: ["Software - Application", "Software - Infrastructure", "Software - Services",
                          "Internet Content & Information", "Information Technology Services"]
@@ -298,7 +299,7 @@ themes:
                          "Hardware, Equipment & Parts", "Information Technology Services"]
         sic: [3571, 3572, 3577, 3674, 7372, 7373]
         keywords: ["quantum computing", "quantum computer", "qubit", "quantum processor"]
-        min_hits: 3
+        min_hits: 5                # v2 Kapı 2 revizyonu: 3 → 5 (kuantum pazarından bahseden ekipmancılar)
 
 # -----------------------------------------------------------------------------
 # FAKTÖR SETLERİ (literatüre dayalı, sonuç görülmeden SABİTLENDİ)

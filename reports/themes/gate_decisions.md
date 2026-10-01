@@ -86,3 +86,19 @@ satıyor).
 **Kapsam uyarısı (getiri değil, sayı):** robotik teması incedir — güncel 46 üye; components, surgical_medical ve
 grid_equipment alt temaları hiçbir ayda 15 firmaya ulaşmıyor; bu alt temalar araştırma modülünde ayrı kapsam olarak
 raporlanmaz (n < 15), tema düzeyinde kalır.
+
+## Kapı 2 — themes_v2 genişlemesi (2026-10-01, sonuç görülmeden)
+
+Kapsam: 7 tema / 23 alt tema (AI, yarı iletken, siber+bulut, savunma/uzay/kuantum eklendi; robotik ve biotech
+genişletildi; çoklu tema üyeliği). T2: 2.151 şirket, 22.614 10-K, %97,8 Item 1. İnceleme örneklemi 240 (yeni alt
+temalar için ayrı doğrulama sözlüğü, `src/themes/review.py`).
+
+| Koşu | İsabet | Zayıf alt temalar |
+|---|---|---|
+| İlk | %85,4 | siber %64, endüstriyel otomasyon %64, otonom/drone %64, kuantum %60, yarı iletken ekipman %67 |
+| Tek revizyon sonrası | **%90,0** | siber %55 (11 örnek), otonom/drone %64, cerrahi %75 |
+
+Revizyon (yalnızca sınıflandırma kanıtı): components 5→8, industrial_automation 3→5, cybersecurity 5→8,
+quantum 3→5 isabet eşiği; semi_equipment'ta genel "semiconductor" yerine ekipmana özgü terimler. Otonom/drone
+hatalarının çoğu doğrulayıcının kaçırdıklarıdır (Axon drone satıyor, Kodiak otonom kamyon). **Siber güvenlik zayıf
+kalıyor** (tek revizyon hakkı kullanıldı); raporda işaretlenir. Güncel üye: 2.650 şirket (tarihsel), 1.750 güncel.
