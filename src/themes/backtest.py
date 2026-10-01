@@ -19,7 +19,14 @@ import pandas as pd
 
 from src.config import load_config
 from src.portfolio.book import CostModel, Order, Portfolio, SimulatedBroker
-from src.portfolio.rebalance import execute_targets, select_theme, spread_cost_fn, theme_targets
+from src.portfolio.rebalance import (
+    execute_targets,
+    partial_rebalance,
+    select_theme,
+    spread_cost_fn,
+    theme_targets,
+    theme_tilt_weights,
+)
 from src.themes.config import ThemesConfig
 
 
@@ -73,9 +80,30 @@ class ThemeBacktester:
         self.initial_capital = initial_capital
         self.haircuts = haircuts if haircuts is not None else pd.Series(dtype=float)
 
+    def _tilt_target(self, tilt, cross: pd.DataFrame, port: Portfolio, prices: dict, rebalance: bool) -> pd.Series:
+        """v2 construction: score-tilted theme holdings (``theme_tilt_weights``) with partial rebalancing; between
+        rebalances current weights are kept for names that are still eligible members."""
+        equity = port.cash + sum(p.shares * float(prices.get(s) or p.entry_price) for s, p in port.positions.items())
+        current = pd.Series({s: p.shares * float(prices.get(s) or p.entry_price) / equity
+                             for s, p in port.positions.items()}, dtype=float)
+        if not rebalance:
+            return current[current.index.isin(cross.index)]
+        blocked: set[str] = set()
+        if tilt.vol_block > 0:
+            blocked = entry_block(cross, tilt.vol_block)
+        budgets = dict(tilt.budgets)
+        parts = [theme_tilt_weights(g["score"], budgets.get(t, 0.0), tilt.lam, tilt.top_frac,
+                                    self.cfg.portfolio.position_cap, blocked)
+                 for t, g in cross.groupby("theme") if budgets.get(t, 0.0) > 0]
+        target = pd.concat(parts).groupby(level=0).sum() if parts else pd.Series(dtype=float)
+        return partial_rebalance(current, target, tilt.speed)
+
     def run(self, cost_multiplier: float = 1.0, start: pd.Timestamp | None = None,
-            rf_daily: pd.Series | None = None) -> ThemeBacktestResult:
-        """``rf_daily``: risk-free rate per session (``daily_rf``); uninvested cash accrues it (v2 data fix)."""
+            rf_daily: pd.Series | None = None, tilt=None) -> ThemeBacktestResult:
+        """``rf_daily``: risk-free rate per session (``daily_rf``); uninvested cash accrues it (v2 data fix).
+        ``tilt``: a ``src.themes.search.SearchConfig`` -> v2 tilt construction instead of the v1 top-N selection
+        (scores passed to the constructor must then be that configuration's scores)."""
+        n_reb = 0
         cfg, ccfg = self.cfg, self.bt["costs"]
         costs = CostModel.from_config(ccfg, cost_multiplier)
         broker = SimulatedBroker(costs)
@@ -97,15 +125,24 @@ class ThemeBacktester:
             if day in trade_day:
                 d = trade_day[day]
                 cross = self.cross[d]
-                sigs = monthly_signals(cross, cfg, {s: theme_of.get(s) for s in port.positions})
                 opens = self.open.loc[day]
                 extra = spread_cost_fn(ccfg, cross["spread_est"] if "spread_est" in cross else None, cost_multiplier)
                 keep: dict[str, list[str]] = {}
-                for t, sg in sigs.items():
-                    keep[t] = [s for s, x in sg.items() if x in ("HOLD", "BUY")]
-                    for s, x in sg.items():
-                        sig_rows.append({"rebalance_date": d, "symbol": s, "theme": t, "signal": x,
-                                         "score": cross["score"].get(s)})
+                tilt_target = None
+                if tilt is not None:
+                    prices0 = {s: (opens.get(s) if opens.get(s) == opens.get(s) else last_close.get(s))
+                               for s in port.positions}
+                    tilt_target = self._tilt_target(tilt, cross, port, prices0, rebalance=n_reb % tilt.rebalance_months == 0)
+                    n_reb += 1
+                    for s in tilt_target.index:
+                        keep.setdefault(str(cross.at[s, "theme"]), []).append(s)
+                else:
+                    sigs = monthly_signals(cross, cfg, {s: theme_of.get(s) for s in port.positions})
+                    for t, sg in sigs.items():
+                        keep[t] = [s for s, x in sg.items() if x in ("HOLD", "BUY")]
+                        for s, x in sg.items():
+                            sig_rows.append({"rebalance_date": d, "symbol": s, "theme": t, "signal": x,
+                                             "score": cross["score"].get(s)})
                 kept = {s for ks in keep.values() for s in ks}
                 for s in [s for s in list(port.positions) if s not in kept]:
                     pos = port.positions[s]
@@ -124,7 +161,8 @@ class ThemeBacktester:
                         port.apply(f)
                         trades.append(_trade(d, f))
                         theme_of.pop(s, None)
-                targets = theme_targets(keep, weights, n_picks, cfg.portfolio.position_cap)
+                targets = tilt_target if tilt_target is not None else \
+                    theme_targets(keep, weights, n_picks, cfg.portfolio.position_cap)
                 for t, ks in keep.items():
                     for s in ks:
                         theme_of[s] = t

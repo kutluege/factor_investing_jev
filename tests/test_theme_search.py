@@ -130,3 +130,24 @@ def test_pbo_flags_pure_noise_search():
     ev = evaluate_search(contrib_matrix(T=180, N=40), pd.Timestamp("2020-12-31"), pd.Timestamp("2011-07-31"), 2016)
     assert ev["pbo"]["pbo"] > 0.3  # selecting among noise does not persist out of sample
     assert ev["dsr_full_sample_best"]["dsr"] < 0.95
+
+
+def test_fast_engine_agrees_with_exact_backtester():
+    from src.themes.backtest import ThemeBacktester, equity_period_returns
+    panel, close, dates = synthetic(seed=4)
+    scores = score_panel(panel, CFG)
+    si = ScoreInputs(panel, scores, CFG)
+    rf = pd.Series(0.0, index=close.index)
+    pdata = PeriodData(close, dates, pd.Series(dtype=float), rf, panel, CFG, COSTS)
+    cfgx = SearchConfig(tuple((g, 1.0) for g in si.groups), 0.8, 0.5, tuple(sorted(CFG.enabled_weights().items())),
+                        1.0, 1, 0.0)
+    fast = simulate(cfgx, si, pdata, position_cap=0.08)
+    sc = si.df[["rebalance_date", "symbol"]].assign(score=si.scores(dict(cfgx.group_mult)))
+    open_ = close.shift(1).fillna(close.iloc[0])
+    exact = ThemeBacktester(panel, sc, CFG, open_, close).run(tilt=cfgx)
+    er = equity_period_returns(exact.equity, dates)
+    nxt = dict(zip(dates[:-1], dates[1:], strict=True))
+    fr = pd.Series(fast["net"].to_numpy(), index=[nxt.get(d) for d in fast.index]).dropna()  # period end date
+    common = er.index.intersection(fr.index)[1:]
+    assert abs(er[common].mean() - fr[common].mean()) * 12 < 0.01
+    assert np.corrcoef(er[common], fr[common])[0, 1] > 0.9
