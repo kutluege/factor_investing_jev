@@ -12,7 +12,7 @@
 # yeni sürüm (themes_v2) + docs/CHANGELOG_THEMES.md'ye gerekçe.
 # =============================================================================
 
-version: themes_v1
+version: themes_v2                 # arama izi (2026-10-01); themes_v1 ön kayıtlı kopya dondurulmuş
 
 universe:
   exchanges: [NASDAQ, NYSE]
@@ -107,27 +107,32 @@ themes:
         sic: [3559, 3569, 3625, 3823, 3829]
         keywords: ["industrial robot", "robotic", "factory automation", "motion control",
                    "machine vision", "collaborative robot", "cobot",
-                   "warehouse automation", "programmable logic controller"]
-        min_hits: 5
+                   "warehouse automation", "programmable logic controller",
+                   # v2 genişletme (2026-10-01, yalnızca sınıflandırma kanıtıyla: log-odds + T3r)
+                   "industrial automation", "discrete automation", "process automation", "automation products",
+                   "autonomous mobile robot", "humanoid", "robotic arm"]
+        min_hits: 3                  # v2: 5 → 3 (aday havuzunda 22 → 47 firma)
       surgical_medical:
         fmp_industries: ["Medical - Devices", "Medical - Instruments & Supplies"]
         sic: [3841, 3842, 3845]
         keywords: ["surgical robot", "robotic surgery", "robotic-assisted",
-                   "robotic assisted", "robotic system", "robotic platform"]
+                   "robotic assisted", "robotic system", "robotic platform",
+                   "robot-assisted", "surgical robotics", "robotic surgical"]    # v2 genişletme
         min_hits: 3
       autonomous_drone:
         fmp_industries: ["Auto - Manufacturers", "Auto - Parts", "Aerospace & Defense",
                          "Software - Application", "Software - Infrastructure"]
         sic: [3711, 3714, 3721, 3728, 3812, 7372]
         keywords: ["autonomous vehicle", "autonomous driving", "self-driving", "lidar",
-                   "drone", "unmanned aerial", "unmanned aircraft", "robotaxi"]
+                   "drone", "unmanned aerial", "unmanned aircraft", "robotaxi",
+                   "unmanned systems", "uncrewed", "driverless", "unmanned ground"]   # v2 genişletme
         min_hits: 10                 # Kapı 2 revizyonu (2026-09-30): 5 → 10, bkz. docs/CHANGELOG_THEMES.md
       components:
         fmp_industries: ["Semiconductors", "Hardware, Equipment & Parts",
                          "Electrical Equipment & Parts"]
         sic: [3621, 3674, 3679, 3825, 3829]
         keywords: ["robot"]        # "robotic", "robotics" da eşleşir
-        min_hits: 8                # yüksek eşik: genel çip/sensör firmalarını ayıklar
+        min_hits: 5                # v2: 8 → 5 (aday havuzunda ~10 → 22 firma); genel çip firmaları hâlâ elenir
 
   biotech:
     enabled: true
