@@ -102,6 +102,15 @@ def build_features_cmd(db: str = typer.Option(None)) -> None:
                             "seconds": round(time.time() - t0)})
 
 
+@app.command("repair-adjusted")
+def repair_adjusted_cmd(db: str = typer.Option(None)) -> None:
+    """Repair vendor breaks in stored dividend-adjusted closes (logged in price_repairs; idempotent)."""
+    from src.data.prices import repair_adjusted
+    setup_logging()
+    ctx = open_context(db, progress_printer)
+    print_json("repair-adjusted", repair_adjusted(ctx.con))
+
+
 @app.command("factor-ic")
 def factor_ic(db: str = typer.Option(None)) -> None:
     """Descriptive characteristic research (rank IC, top-quintile excess) -> docs/FACTOR_IC.md."""

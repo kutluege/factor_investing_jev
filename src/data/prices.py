@@ -36,7 +36,10 @@ def _prices_frame(symbol: str, raw: list[dict], adjusted: list[dict] | None) -> 
         if {"date", "adjclose"}.issubset(adj.columns):
             adj["date"] = pd.to_datetime(adj["date"]).dt.date
             out = out.merge(adj[["date", "adjclose"]], on="date", how="left")
-            out["adj_close"] = out["adjclose"].fillna(out["close"])
+            # carry the adjustment ratio across dates missing from the adjusted feed (no dividend assumed there);
+            # filling with the raw close would splice two price scales together
+            ratio = (out["adjclose"] / out["close"]).ffill().bfill().fillna(1.0)
+            out["adj_close"] = out["adjclose"].fillna(out["close"] * ratio)
             out = out.drop(columns=["adjclose"])
             source = "fmp_full+dividend_adjusted"
     out.insert(0, "symbol", symbol)
@@ -155,6 +158,68 @@ def chain_adjusted(con: duckdb.DuckDBPyConnection, symbol: str, last: date, new:
         return new
     new["adj_close"] = new["adj_close"] * (float(stored[0]) / float(overlap["adj_close"].iloc[0]))
     return new
+
+
+ADJ_BREAK = 1.5  # one-day change of adj_close/close beyond this factor is a vendor break, not a dividend
+
+
+def adjusted_breaks(close: pd.Series, adj: pd.Series) -> pd.Series:
+    """Factor by which the adjusted series jumps relative to the close on each date (1.0 = no break).
+
+    A break is flagged only when the adjusted series is the one that jumps (|log adj return| > |log close return|):
+    a large move in the close with a smooth adjusted series (spin-off, unadjusted split in the close) is left alone.
+    """
+    k = adj / close
+    ratio = k / k.shift(1)
+    r_adj = np.log(adj / adj.shift(1)).abs()
+    r_close = np.log(close / close.shift(1)).abs()
+    bad = ((ratio > ADJ_BREAK) | (ratio < 1 / ADJ_BREAK)) & (r_adj > r_close)
+    return ratio.where(bad, 1.0).fillna(1.0)
+
+
+def repair_adjusted_series(close: pd.Series, adj: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """Chain the adjusted series across vendor breaks: every date before a break is rescaled by the break factor,
+    so the adjusted return on the break date equals the close return. Returns (repaired adj, break factors)."""
+    breaks = adjusted_breaks(close, adj)
+    after = breaks[::-1].cumprod()[::-1].shift(-1).fillna(1.0)  # product of break factors strictly later
+    return adj * after, breaks[breaks != 1.0]
+
+
+def repair_adjusted(con: duckdb.DuckDBPyConnection, symbols: list[str] | None = None) -> dict[str, Any]:
+    """Repair stored adj_close series in place and log each break in ``price_repairs`` (idempotent)."""
+    con.execute("CREATE TABLE IF NOT EXISTS price_repairs (symbol VARCHAR, date DATE, factor DOUBLE, "
+                "repaired_at TIMESTAMP)")
+    q = "SELECT symbol, date, close, adj_close FROM daily_prices WHERE close > 0 AND adj_close > 0"
+    params: list[Any] = []
+    if symbols is not None:
+        q += " AND symbol IN (SELECT unnest(?))"
+        params.append(list(symbols))
+    p = con.execute(q + " ORDER BY symbol, date", params).df()
+    repaired, logs = [], []
+    for sym, g in p.groupby("symbol", sort=False):
+        new, br = repair_adjusted_series(g["close"].reset_index(drop=True), g["adj_close"].reset_index(drop=True))
+        if br.empty:
+            continue
+        dates = g["date"].reset_index(drop=True)
+        repaired.append(pd.DataFrame({"symbol": sym, "date": dates, "adj_close": new.to_numpy()}))
+        logs.append(pd.DataFrame({"symbol": sym, "date": dates[br.index].to_numpy(), "factor": br.to_numpy(),
+                                  "repaired_at": utcnow()}))
+    if repaired:
+        upd = pd.concat(repaired, ignore_index=True)
+        con.register("_adj_fix", upd)
+        try:
+            con.execute("UPDATE daily_prices SET adj_close = f.adj_close FROM _adj_fix f "
+                        "WHERE daily_prices.symbol = f.symbol AND daily_prices.date = f.date")
+        finally:
+            con.unregister("_adj_fix")
+        con.register("_adj_log", pd.concat(logs, ignore_index=True))
+        try:
+            con.execute("INSERT INTO price_repairs SELECT symbol, date, factor, repaired_at FROM _adj_log")
+        finally:
+            con.unregister("_adj_log")
+    n_breaks = int(sum(len(x) for x in logs))
+    return {"symbols_repaired": len(repaired), "breaks": n_breaks,
+            "examples": [f"{x['symbol'].iloc[0]}:{x['date'].iloc[0]}" for x in logs[:10]]}
 
 
 def refresh_price_dates(con: duckdb.DuckDBPyConnection) -> None:

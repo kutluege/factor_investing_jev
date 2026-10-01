@@ -1,10 +1,12 @@
 """Price-momentum features. Offsets are in trading sessions; skip-month variants exclude the latest ~21 sessions."""
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 HORIZONS = {"ret_1m": 21, "ret_3m": 63, "ret_6m": 126, "ret_9m": 189, "ret_12m": 252}
 SKIP = 21
+LABEL_MAX_ABS_RETURN = 10.0  # |forward return| above 1000% is treated as a vendor glitch
 
 
 def momentum_panel(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -71,7 +73,8 @@ def forward_returns(close: pd.DataFrame, dates: list[pd.Timestamp], horizon: int
         hc = delisting_haircut.reindex(end.index).fillna(0.0) if isinstance(delisting_haircut, pd.Series) \
             else delisting_haircut
         end_val = end.where(~delisted, last_valid * (1.0 - hc))
-        r = (end_val / start - 1.0).dropna()
+        r = (end_val / start - 1.0).replace([np.inf, -np.inf], np.nan)
+        r = r.where(r.abs() <= LABEL_MAX_ABS_RETURN).dropna()  # vendor glitches, same rule as monthly returns
         for sym, val in r.items():
             rows.append((d, sym, float(val), idx[j]))
     return pd.DataFrame(rows, columns=["rebalance_date", "symbol", "fwd_return", "label_end_date"])
