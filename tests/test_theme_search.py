@@ -141,15 +141,17 @@ def test_fast_engine_agrees_with_exact_backtester():
     pdata = PeriodData(close, dates, pd.Series(dtype=float), rf, panel, CFG, COSTS)
     cfgx = SearchConfig(tuple((g, 1.0) for g in si.groups), 0.8, 0.5, tuple(sorted(CFG.enabled_weights().items())),
                         1.0, 1, 0.0)
-    fast = simulate(cfgx, si, pdata, position_cap=0.08)
-    sc = si.df[["rebalance_date", "symbol"]].assign(score=si.scores(dict(cfgx.group_mult)))
+    pcfg = load_config("backtest")["portfolio"]
+    fast = simulate(cfgx, si, pdata, position_cap=0.08, drift_band=float(pcfg["drift_band"]),
+                    min_trade_usd=float(pcfg.get("min_trade_usd", 0.0)))
+    sc = si.df[["rebalance_date", "symbol", "theme"]].assign(score=si.scores(dict(cfgx.group_mult)))
     open_ = close.shift(1).fillna(close.iloc[0])
     exact = ThemeBacktester(panel, sc, CFG, open_, close).run(tilt=cfgx)
     er = equity_period_returns(exact.equity, dates)
     nxt = dict(zip(dates[:-1], dates[1:], strict=True))
     fr = pd.Series(fast["net"].to_numpy(), index=[nxt.get(d) for d in fast.index]).dropna()  # period end date
     common = er.index.intersection(fr.index)[1:]
-    assert abs(er[common].mean() - fr[common].mean()) * 12 < 0.01
+    assert abs(er[common].mean() - fr[common].mean()) * 12 < 0.005  # residual: next-open vs close execution timing
     assert np.corrcoef(er[common], fr[common])[0, 1] > 0.9
 
 
@@ -161,3 +163,11 @@ def test_present_budgets_and_cross_theme_cap():
     t = pd.Series({"NVDA": 0.12, "X": 0.04, "Y": 0.04, "Z": 0.04, "W": 0.04})  # NVDA held via three themes
     capped = cap_total_weight(t, 0.08)
     assert capped.max() <= 0.08 + 1e-12 and capped.sum() == pytest.approx(t.sum())
+
+
+def test_drift_band_skips_small_rebalances():
+    from src.themes.search import apply_drift_band
+    held = pd.Series({"A": 0.10, "B": 0.10, "C": 0.05})
+    new = pd.Series({"A": 0.11, "B": 0.20, "D": 0.05})  # A within 25% band, B outside, C exits, D enters
+    out = apply_drift_band(held, new, 0.25, 0.0015)
+    assert out["A"] == pytest.approx(0.10) and out["B"] == pytest.approx(0.20) and "C" not in out and "D" in out

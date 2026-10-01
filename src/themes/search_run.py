@@ -67,9 +67,11 @@ def run_search(con: duckdb.DuckDBPyConnection, cfg: ThemesConfig, n_trials: int,
     pdata = PeriodData(md.mats["close"], dates, haircut, rfd, panel[panel["eligible"]], cfg, costs)
     themes = [t for t, th in cfg.themes.items() if th.enabled]
     configs = sample_configs(si.groups, themes, cfg.enabled_weights(), n_trials, seed)
+    pcfg = load_config("backtest")["portfolio"]
+    band, min_trade = float(pcfg["drift_band"]), float(pcfg.get("min_trade_usd", 0.0))  # same as the exact engine
     contrib, nets, rows = {}, {}, []
     for i, c in enumerate(configs):
-        sim = simulate(c, si, pdata, cfg.portfolio.position_cap)
+        sim = simulate(c, si, pdata, cfg.portfolio.position_cap, drift_band=band, min_trade_usd=min_trade)
         contrib[c.key], nets[c.key] = sim["contribution"], sim["net"]
         rows.append({"key": c.key, **_trial_metrics(sim, DESIGN_END), "config": json.dumps(c.as_dict())})
         if (i + 1) % 50 == 0:

@@ -179,9 +179,26 @@ def tilt_targets(cross: pd.DataFrame, cfg: SearchConfig, position_cap: float) ->
     return cap_total_weight(target.groupby(level=0).sum(), position_cap)  # multi-theme names: total cap
 
 
+def apply_drift_band(held: pd.Series, new: pd.Series, drift_band: float, min_trade_w: float) -> pd.Series:
+    """Same no-trade rule as the exact engine (``execute_targets``): a kept position is re-traded only when it is
+    more than ``drift_band`` (relative) away from target and the trade exceeds ``min_trade_w`` of capital; new
+    positions and exits always trade. Total weight is scaled back to <= 1 if the skipped trims leave it above."""
+    if held.empty or new.empty:
+        return new
+    both = new.index.intersection(held.index)
+    h, t = held.reindex(both), new.reindex(both)
+    skip = ((h - t).abs() <= drift_band * t) | ((h - t).abs() < min_trade_w)
+    out = new.copy()
+    out.loc[both[skip.to_numpy()]] = h[skip].to_numpy()
+    tot = float(out.sum())
+    return out / tot if tot > 1.0 else out
+
+
 def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap: float, capital: float = 100_000.0,
-             cost_multiplier: float = 1.0, scores: pd.Series | None = None) -> pd.DataFrame:
-    """Monthly net portfolio returns, benchmark, contribution and turnover for one configuration."""
+             cost_multiplier: float = 1.0, scores: pd.Series | None = None, drift_band: float = 0.0,
+             min_trade_usd: float = 0.0) -> pd.DataFrame:
+    """Monthly net portfolio returns, benchmark, contribution and turnover for one configuration. ``drift_band`` and
+    ``min_trade_usd`` mirror the exact engine's no-trade rules (config/backtest.yaml portfolio section)."""
     sc = scores if scores is not None else si.scores(dict(cfg.group_mult))
     df = si.df.assign(score=sc)
     by_date = dict(tuple(df.groupby("rebalance_date")))
@@ -195,6 +212,8 @@ def simulate(cfg: SearchConfig, si: ScoreInputs, pdata: PeriodData, position_cap
         else:
             members = set(cross["symbol"]) if cross is not None else set()
             new = held[held.index.isin(members)] if cross is not None else held
+        if rebalance and drift_band > 0:
+            new = apply_drift_band(held, new, drift_band, min_trade_usd / capital)
         r = pdata.R.loc[d]
         new = new[r.reindex(new.index).notna()]  # names without a holding-period price cannot be held
         names = new.index.union(held.index)
